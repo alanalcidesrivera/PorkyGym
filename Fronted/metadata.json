@@ -1,0 +1,6 @@
+{
+  "name": "IronTrack Elite Gym Management",
+  "description": "High-contrast urban brutalist gym management suite with members roster, equipment inventory, live training log, and granular access control.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

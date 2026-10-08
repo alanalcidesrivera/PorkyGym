@@ -1,0 +1,14 @@
+--Encender el entorno virtual del backend
+.\venv\Scripts\Activate.ps1
+--Activar el backend
+python manage.py runserver
+
+
+--Activar el fronted
+npm run dev
+
+--Administardor Django
+http://127.0.0.1:8000/admin/
+
+--Resetar por error de contraseña
+python manage.py axes_reset
