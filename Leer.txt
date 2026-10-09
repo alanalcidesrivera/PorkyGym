@@ -11,7 +11,7 @@ npm run dev
 http://127.0.0.1:8000/admin/
 
 --Resetar por error de contraseña
-python manage.py axes_resetpython manage.py axes_reset
+python manage.py axes_reset
 
 .. Brevo
 https://app.brevo.com/security/authorised_ips?utm_source
