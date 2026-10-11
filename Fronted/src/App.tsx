@@ -79,6 +79,7 @@ interface PasswordInputProps {
   onChange: (v: string) => void;
   placeholder?: string;
   autoComplete?: string;
+  required?: boolean;
 }
 
 const PasswordInput: React.FC<PasswordInputProps> = ({
@@ -88,6 +89,7 @@ const PasswordInput: React.FC<PasswordInputProps> = ({
   onChange,
   placeholder,
   autoComplete,
+  required = true,
 }) => {
   const [visible, setVisible] = useState(false);
 
@@ -105,7 +107,7 @@ const PasswordInput: React.FC<PasswordInputProps> = ({
           placeholder={placeholder}
           autoComplete={autoComplete}
           className={`${inputCls} pr-10`}
-          required
+          required={required}
         />
         <button
           type="button"
@@ -130,6 +132,8 @@ interface NavbarProps {
   onGestionUsuarios: () => void;
   onBitacora: () => void;
   onRegistrarSocio: () => void;
+  onPlanes: () => void;
+  onRegistrarContrato: () => void;
   onInicio: () => void;
 }
 
@@ -138,8 +142,13 @@ export const Navbar = ({
   onGestionUsuarios,
   onBitacora,
   onRegistrarSocio,
+  onPlanes,
+  onRegistrarContrato,
   onInicio,
 }: NavbarProps) => {
+  const [menuUsuariosAbierto, setMenuUsuariosAbierto] = useState(false);
+  const [menuMembresiasAbierto, setMenuMembresiasAbierto] = useState(false);
+
   const token = localStorage.getItem('access_token');
   const usuarioGuardado = localStorage.getItem('usuario');
 
@@ -161,14 +170,58 @@ export const Navbar = ({
 
       {/* PAQUETE 1: SEGURIDAD, AUTENTICACIÓN Y AUDITORÍA */}
 
-      {/* CU01: Registrar Cuenta de Usuario — solo Administrador */}
-      {usuario.es_administrador && (
-        <button
-          onClick={onGestionUsuarios}
-          className={pantallaActual === 'usuarios' ? btnActivo : btnInactivo}
-        >
-          GESTIONAR USUARIOS
-        </button>
+      {/* Menú desplegable: Gestión de usuarios + Agregar nuevo socio.
+          Visible para Administrador y Recepcionista. Cada opción conserva
+          su propio permiso (Administrador ve ambas; Recepcionista solo el alta). */}
+      {(usuario.es_administrador || usuario.es_recepcionista) && (
+        <div className="relative">
+          <button
+            onClick={() => setMenuUsuariosAbierto((abierto) => !abierto)}
+            aria-expanded={menuUsuariosAbierto}
+            className={`${
+              pantallaActual === 'usuarios' || pantallaActual === 'registrar-socio'
+                ? btnActivo
+                : btnInactivo
+            } flex items-center gap-1`}
+          >
+            GESTIÓN DE USUARIOS
+            <span className="text-xs">{menuUsuariosAbierto ? '▲' : '▼'}</span>
+          </button>
+
+          {menuUsuariosAbierto && (
+            <div className="absolute left-0 mt-1 z-20 min-w-max bg-gray-900 border border-gray-700 rounded shadow-lg flex flex-col">
+              {/* CU01: Registrar Cuenta de Usuario — solo Administrador */}
+              {usuario.es_administrador && (
+                <button
+                  onClick={() => {
+                    onGestionUsuarios();
+                    setMenuUsuariosAbierto(false);
+                  }}
+                  className={`text-left px-4 py-2 whitespace-nowrap hover:bg-gray-700 ${
+                    pantallaActual === 'usuarios' ? 'text-yellow-400 font-bold' : 'text-white'
+                  }`}
+                >
+                  Gestionar usuarios
+                </button>
+              )}
+
+              {/* CU04: Registrar Expediente de Socio — Recepcionista, Administrador */}
+              {(usuario.es_recepcionista || usuario.es_administrador) && (
+                <button
+                  onClick={() => {
+                    onRegistrarSocio();
+                    setMenuUsuariosAbierto(false);
+                  }}
+                  className={`text-left px-4 py-2 whitespace-nowrap hover:bg-gray-700 ${
+                    pantallaActual === 'registrar-socio' ? 'text-yellow-400 font-bold' : 'text-white'
+                  }`}
+                >
+                  Agregar nuevo socio
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* CU03: Registrar Bitácora de Auditoría — solo Administrador */}
@@ -183,14 +236,58 @@ export const Navbar = ({
 
       {/* PAQUETE 2: GESTIÓN DE SOCIOS, MEMBRESÍAS Y CONTROL DE ACCESO */}
 
-      {/* CU04: Registrar Expediente de Socio — Recepcionista, Administrador */}
-      {(usuario.es_recepcionista || usuario.es_administrador) && (
-        <button
-          onClick={onRegistrarSocio}
-          className={pantallaActual === 'registrar-socio' ? btnActivo : btnInactivo}
-        >
-          REGISTRAR SOCIO
-        </button>
+      {/* Menú desplegable «Membresías»: agrupa la gestión de planes (CU05,
+          solo Administrador) y el registro de contratos (CU06, Administrador
+          y Recepcionista). Cada opción conserva su propio permiso. */}
+      {(usuario.es_administrador || usuario.es_recepcionista) && (
+        <div className="relative">
+          <button
+            onClick={() => setMenuMembresiasAbierto((abierto) => !abierto)}
+            aria-expanded={menuMembresiasAbierto}
+            className={`${
+              pantallaActual === 'planes' || pantallaActual === 'contrato'
+                ? btnActivo
+                : btnInactivo
+            } flex items-center gap-1`}
+          >
+            MEMBRESÍAS
+            <span className="text-xs">{menuMembresiasAbierto ? '▲' : '▼'}</span>
+          </button>
+
+          {menuMembresiasAbierto && (
+            <div className="absolute left-0 mt-1 z-20 min-w-max bg-gray-900 border border-gray-700 rounded shadow-lg flex flex-col">
+              {/* CU05: Administrar Planes de Membresía — solo Administrador */}
+              {usuario.es_administrador && (
+                <button
+                  onClick={() => {
+                    onPlanes();
+                    setMenuMembresiasAbierto(false);
+                  }}
+                  className={`text-left px-4 py-2 whitespace-nowrap hover:bg-gray-700 ${
+                    pantallaActual === 'planes' ? 'text-yellow-400 font-bold' : 'text-white'
+                  }`}
+                >
+                  Gestionar planes de membresía
+                </button>
+              )}
+
+              {/* CU06: Registrar Contrato de Membresía — Administrador y Recepcionista */}
+              {(usuario.es_administrador || usuario.es_recepcionista) && (
+                <button
+                  onClick={() => {
+                    onRegistrarContrato();
+                    setMenuMembresiasAbierto(false);
+                  }}
+                  className={`text-left px-4 py-2 whitespace-nowrap hover:bg-gray-700 ${
+                    pantallaActual === 'contrato' ? 'text-yellow-400 font-bold' : 'text-white'
+                  }`}
+                >
+                  Registrar contrato de membresía
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       <button
@@ -619,6 +716,15 @@ const AuthGate = () => {
 // 9. Componente Principal
 // ============================================================
 
+interface MembresiaResumen {
+  estado: string;
+  tiene_membresia: boolean;
+  plan: string | null;
+  fecha_inicio: string | null;
+  fecha_vencimiento: string | null;
+  dias_restantes: number | null;
+}
+
 interface UsuarioListado {
   id: number;
   username: string;
@@ -628,6 +734,7 @@ interface UsuarioListado {
   es_entrenador: boolean;
   es_recepcionista: boolean;
   es_administrador: boolean;
+  membresia: MembresiaResumen | null;
 }
 
 const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
@@ -1246,22 +1353,11 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
                   Entrenador
                 </label>
 
-
-                <label className="flex gap-2">
-                  <input
-                    type="checkbox"
-                    checked={nuevoUsuario.es_socio}
-                    onChange={(e) =>
-                      setNuevoUsuario({
-                        ...nuevoUsuario,
-                        es_socio: e.target.checked,
-                      })
-                    }
-                  />
-                  Socio
-                </label>
-
               </div>
+
+              <p className="mt-3 text-sm text-gray-400">
+                El registro de socios se realiza desde «Registrar nuevo socio».
+              </p>
 
             </div>
 
@@ -1368,6 +1464,7 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
                 })
               }
               autoComplete="new-password"
+              required={false}
             />
 
             <PasswordInput
@@ -1381,6 +1478,7 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
                 })
               }
               autoComplete="new-password"
+              required={false}
             />
 
             <div>
@@ -1619,6 +1717,22 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
                   <th className="p-3 text-left">
                     Estado
                   </th>
+                  {categoriaSeleccionada === 'socios' && (
+                    <>
+                      <th className="p-3 text-left">
+                        Membresía
+                      </th>
+                      <th className="p-3 text-left">
+                        Estado membre.
+                      </th>
+                      <th className="p-3 text-left">
+                        Vencimiento
+                      </th>
+                      <th className="p-3 text-left">
+                        Días restantes
+                      </th>
+                    </>
+                  )}
                   <th className="p-3 text-left">
                     Acciones
                   </th>
@@ -1655,6 +1769,33 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
                     <td className="p-3">
                       {usuario.estado_cuenta}
                     </td>
+                    {categoriaSeleccionada === 'socios' && (
+                      <>
+                        <td className="p-3">
+                          {usuario.membresia?.plan || '—'}
+                        </td>
+                        <td
+                          className={`p-3 font-bold ${
+                            usuario.membresia?.estado === 'Vigente'
+                              ? 'text-green-400'
+                              : usuario.membresia?.estado === 'Vencida'
+                                ? 'text-red-400'
+                                : 'text-gray-400'
+                          }`}
+                        >
+                          {usuario.membresia?.estado || 'Sin membresía'}
+                        </td>
+                        <td className="p-3">
+                          {usuario.membresia?.fecha_vencimiento || '—'}
+                        </td>
+                        <td className="p-3">
+                          {usuario.membresia?.dias_restantes !== null &&
+                          usuario.membresia?.dias_restantes !== undefined
+                            ? usuario.membresia.dias_restantes
+                            : '—'}
+                        </td>
+                      </>
+                    )}
                     <td className="p-3">
 
                       <div className="flex gap-2">
@@ -1905,6 +2046,7 @@ const PantallaRegistrarSocio = ({ onVolver }: { onVolver: () => void }) => {
   const token = localStorage.getItem('access_token');
 
   const [planes, setPlanes] = useState<PlanMembresiaItem[]>([]);
+  const [metodosPago, setMetodosPago] = useState<MetodoPagoItem[]>([]);
   const [form, setForm] = useState({
     username: '',
     email: '',
@@ -1916,6 +2058,7 @@ const PantallaRegistrarSocio = ({ onVolver }: { onVolver: () => void }) => {
     peso_inicial_kg: '',
     contacto_emerg_nombre: '',
     id_plan_membresia: '',
+    id_metodo_pago: '',
   });
 
   const [error, setError] = useState('');
@@ -1923,9 +2066,17 @@ const PantallaRegistrarSocio = ({ onVolver }: { onVolver: () => void }) => {
   const [enviando, setEnviando] = useState(false);
 
   useEffect(() => {
-    fetch(`${API_URL}/planes/`, { headers: { Authorization: `Bearer ${token}` } })
+    const headers = { Authorization: `Bearer ${token}` };
+    fetch(`${API_URL}/planes/`, { headers })
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setPlanes((data || []).filter((p: PlanMembresiaItem) => p.estado === 'Activo')))
+      .catch(() => {});
+    // Métodos de pago disponibles para la membresía inicial (opcional).
+    fetch(`${API_URL}/metodos-pago/`, { headers })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) =>
+        setMetodosPago(Array.isArray(data) ? data : data.results || [])
+      )
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1963,6 +2114,9 @@ const PantallaRegistrarSocio = ({ onVolver }: { onVolver: () => void }) => {
       if (form.peso_inicial_kg) payload.peso_inicial_kg = form.peso_inicial_kg;
       if (form.contacto_emerg_nombre) payload.contacto_emerg_nombre = form.contacto_emerg_nombre;
       if (form.id_plan_membresia) payload.id_plan_membresia = Number(form.id_plan_membresia);
+      if (form.id_plan_membresia && form.id_metodo_pago) {
+        payload.id_metodo_pago = Number(form.id_metodo_pago);
+      }
 
       const response = await fetch(`${API_URL}/socios/registrar/`, {
         method: 'POST',
@@ -1997,6 +2151,7 @@ const PantallaRegistrarSocio = ({ onVolver }: { onVolver: () => void }) => {
         peso_inicial_kg: '',
         contacto_emerg_nombre: '',
         id_plan_membresia: '',
+        id_metodo_pago: '',
       });
     } catch {
       setError('No se pudo conectar con el servidor.');
@@ -2125,6 +2280,24 @@ const PantallaRegistrarSocio = ({ onVolver }: { onVolver: () => void }) => {
           </select>
         </div>
 
+        {form.id_plan_membresia && (
+          <div>
+            <label className="block mb-1">Método de pago — opcional (Efectivo por defecto):</label>
+            <select
+              value={form.id_metodo_pago}
+              onChange={(e) => actualizarCampo('id_metodo_pago', e.target.value)}
+              className={inputCls}
+            >
+              <option value="">-- Efectivo (por defecto) --</option>
+              {metodosPago.map((m) => (
+                <option key={m.id_metodo_pago} value={m.id_metodo_pago}>
+                  {m.descripcion}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <button type="submit" className={btnCls} disabled={enviando}>
           {enviando ? 'REGISTRANDO...' : 'REGISTRAR SOCIO'}
         </button>
@@ -2133,10 +2306,915 @@ const PantallaRegistrarSocio = ({ onVolver }: { onVolver: () => void }) => {
   );
 };
 
+// ============================================================
+// 12. CU05: Administrar Planes de Membresía (solo Administrador)
+//    Lista, crea, edita y activa/desactiva planes. Usa los
+//    endpoints reales del backend (jamás borra físicamente).
+// ============================================================
+interface PlanMembresiaAdminItem {
+  id_plan_membresia: number;
+  nombre_plan: string;
+  moneda_origen: string;
+  costo_base_origen: string;
+  duracion_dias: number;
+  acceso_piscina: boolean;
+  clases_grupales: boolean;
+  estado: string;
+}
+
+const PantallaPlanesMembresia = ({ onVolver }: { onVolver: () => void }) => {
+  const token = localStorage.getItem('access_token');
+
+  const [planes, setPlanes] = useState<PlanMembresiaAdminItem[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState('');
+  const [mensaje, setMensaje] = useState('');
+
+  const [mostrarFormulario, setMostrarFormulario] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [errorFormulario, setErrorFormulario] = useState('');
+  const [planEditando, setPlanEditando] = useState<PlanMembresiaAdminItem | null>(null);
+
+  const formVacio = {
+    nombre_plan: '',
+    moneda_origen: 'BOB',
+    costo_base_origen: '',
+    duracion_dias: '',
+    acceso_piscina: false,
+    clases_grupales: false,
+  };
+
+  const [form, setForm] = useState(formVacio);
+
+  const cargarPlanes = async () => {
+    setCargando(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_URL}/planes/`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        throw new Error('No se pudieron cargar los planes');
+      }
+      const data = await response.json();
+      setPlanes(Array.isArray(data) ? data : data.results || []);
+    } catch {
+      setError('No se pudieron cargar los planes de membresía.');
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarPlanes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const actualizarCampo = (campo: string, valor: string) =>
+    setForm((prev) => ({ ...prev, [campo]: valor }));
+
+  const abrirNuevoPlan = () => {
+    setPlanEditando(null);
+    setForm(formVacio);
+    setErrorFormulario('');
+    setMostrarFormulario(true);
+  };
+
+  const abrirEdicionPlan = (plan: PlanMembresiaAdminItem) => {
+    setPlanEditando(plan);
+    setForm({
+      nombre_plan: plan.nombre_plan,
+      moneda_origen: plan.moneda_origen,
+      costo_base_origen: plan.costo_base_origen,
+      duracion_dias: String(plan.duracion_dias),
+      acceso_piscina: plan.acceso_piscina,
+      clases_grupales: plan.clases_grupales,
+    });
+    setErrorFormulario('');
+    setMostrarFormulario(true);
+  };
+
+  const guardarPlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorFormulario('');
+    setMensaje('');
+
+    if (!form.nombre_plan.trim()) {
+      setErrorFormulario('El nombre del plan es obligatorio.');
+      return;
+    }
+
+    const duracion = Number(form.duracion_dias);
+    if (!form.duracion_dias || !Number.isInteger(duracion) || duracion < 1) {
+      setErrorFormulario('La duración debe ser un número entero mayor o igual a 1 día.');
+      return;
+    }
+
+    const costo = Number(form.costo_base_origen);
+    if (form.costo_base_origen === '' || isNaN(costo) || costo < 0) {
+      setErrorFormulario('El costo base no puede ser negativo.');
+      return;
+    }
+
+    setGuardando(true);
+    try {
+      const url = planEditando
+        ? `${API_URL}/planes/${planEditando.id_plan_membresia}/`
+        : `${API_URL}/planes/`;
+
+      const response = await fetch(url, {
+        method: planEditando ? 'PATCH' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          nombre_plan: form.nombre_plan.trim(),
+          moneda_origen: form.moneda_origen || 'BOB',
+          costo_base_origen: costo,
+          duracion_dias: duracion,
+          acceso_piscina: form.acceso_piscina,
+          clases_grupales: form.clases_grupales,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setErrorFormulario(mensajeDeError(data));
+        return;
+      }
+
+      setMensaje(
+        planEditando
+          ? 'Plan actualizado correctamente.'
+          : 'Plan creado correctamente.'
+      );
+      setMostrarFormulario(false);
+      setPlanEditando(null);
+      setForm(formVacio);
+      await cargarPlanes();
+    } catch {
+      setErrorFormulario('No se pudo conectar con el servidor.');
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const cambiarEstadoPlan = async (plan: PlanMembresiaAdminItem, activar: boolean) => {
+    const confirmar = window.confirm(
+      activar
+        ? `¿Desea activar el plan "${plan.nombre_plan}"?`
+        : `¿Desea desactivar el plan "${plan.nombre_plan}"?`
+    );
+    if (!confirmar) return;
+
+    try {
+      const response = await fetch(
+        `${API_URL}/planes/${plan.id_plan_membresia}/${activar ? 'activar' : 'desactivar'}/`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMensaje(mensajeDeError(data));
+        return;
+      }
+
+      setMensaje(
+        activar
+          ? `Plan "${plan.nombre_plan}" activado correctamente.`
+          : `Plan "${plan.nombre_plan}" desactivado correctamente.`
+      );
+
+      setPlanes((anteriores) =>
+        anteriores.map((p) =>
+          p.id_plan_membresia === plan.id_plan_membresia ? data : p
+        )
+      );
+    } catch {
+      setMensaje('No se pudo conectar con el servidor.');
+    }
+  };
+
+  return (
+    <div className="p-6 text-white">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">PLANES DE MEMBRESÍA</h1>
+        <div className="flex gap-3">
+          <button
+            onClick={abrirNuevoPlan}
+            className="bg-yellow-500 text-black px-4 py-2 rounded font-bold"
+          >
+            + NUEVO PLAN
+          </button>
+          <button onClick={onVolver} className="bg-gray-700 px-4 py-2 rounded">
+            VOLVER
+          </button>
+        </div>
+      </div>
+
+      {mensaje && <p className="mb-4 text-green-400">{mensaje}</p>}
+
+      {mostrarFormulario && (
+        <div className="mb-6 bg-gray-900 p-6 rounded max-w-xl">
+          <h2 className="text-2xl font-bold mb-5">
+            {planEditando ? 'EDITAR PLAN' : 'NUEVO PLAN'}
+          </h2>
+
+          {errorFormulario && <p className="mb-4 text-red-400">{errorFormulario}</p>}
+
+          <form onSubmit={guardarPlan} className="flex flex-col gap-4">
+            <div>
+              <label className="block mb-1">Nombre del plan:</label>
+              <input
+                type="text"
+                value={form.nombre_plan}
+                onChange={(e) => actualizarCampo('nombre_plan', e.target.value)}
+                className={inputCls}
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block mb-1">Moneda:</label>
+                <input
+                  type="text"
+                  value={form.moneda_origen}
+                  onChange={(e) => actualizarCampo('moneda_origen', e.target.value)}
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className="block mb-1">Costo base:</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.costo_base_origen}
+                  onChange={(e) => actualizarCampo('costo_base_origen', e.target.value)}
+                  className={inputCls}
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block mb-1">Duración (días):</label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={form.duracion_dias}
+                onChange={(e) => actualizarCampo('duracion_dias', e.target.value)}
+                className={inputCls}
+                required
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-5">
+              <label className="flex gap-2 items-center">
+                <input
+                  type="checkbox"
+                  checked={form.acceso_piscina}
+                  onChange={(e) =>
+                    setForm({ ...form, acceso_piscina: e.target.checked })
+                  }
+                />
+                Acceso a piscina
+              </label>
+              <label className="flex gap-2 items-center">
+                <input
+                  type="checkbox"
+                  checked={form.clases_grupales}
+                  onChange={(e) =>
+                    setForm({ ...form, clases_grupales: e.target.checked })
+                  }
+                />
+                Clases grupales
+              </label>
+            </div>
+
+            <div className="flex gap-3 mt-3">
+              <button
+                type="submit"
+                disabled={guardando}
+                className="bg-yellow-500 text-black px-5 py-2 rounded font-bold"
+              >
+                {guardando ? 'GUARDANDO...' : 'GUARDAR PLAN'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMostrarFormulario(false);
+                  setPlanEditando(null);
+                  setErrorFormulario('');
+                }}
+                className="bg-red-600 px-5 py-2 rounded"
+              >
+                CANCELAR
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {cargando ? (
+        <p>Cargando planes...</p>
+      ) : error ? (
+        <p className="text-red-400">{error}</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-gray-800">
+                <th className="p-3 text-left">ID</th>
+                <th className="p-3 text-left">Nombre</th>
+                <th className="p-3 text-left">Costo</th>
+                <th className="p-3 text-left">Duración</th>
+                <th className="p-3 text-left">Piscina</th>
+                <th className="p-3 text-left">Clases</th>
+                <th className="p-3 text-left">Estado</th>
+                <th className="p-3 text-left">Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {planes.map((plan) => (
+                <tr key={plan.id_plan_membresia} className="border-b border-gray-700">
+                  <td className="p-3">{plan.id_plan_membresia}</td>
+                  <td className="p-3">{plan.nombre_plan}</td>
+                  <td className="p-3">
+                    {plan.costo_base_origen} {plan.moneda_origen}
+                  </td>
+                  <td className="p-3">{plan.duracion_dias} días</td>
+                  <td className="p-3">{plan.acceso_piscina ? 'Sí' : 'No'}</td>
+                  <td className="p-3">{plan.clases_grupales ? 'Sí' : 'No'}</td>
+                  <td className="p-3">{plan.estado}</td>
+                  <td className="p-3">
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => abrirEdicionPlan(plan)}
+                        className="bg-blue-600 px-3 py-1 rounded"
+                      >
+                        EDITAR
+                      </button>
+                      {plan.estado === 'Activo' ? (
+                        <button
+                          onClick={() => cambiarEstadoPlan(plan, false)}
+                          className="bg-red-600 px-3 py-1 rounded"
+                        >
+                          DESACTIVAR
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => cambiarEstadoPlan(plan, true)}
+                          className="bg-green-600 px-3 py-1 rounded"
+                        >
+                          ACTIVAR
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {planes.length === 0 && (
+            <p className="mt-4 text-gray-400">No existen planes de membresía.</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================
+// 13. CU06: Registrar Contrato de Membresía (Admin/Recepcionista)
+// ============================================================
+interface MetodoPagoItem {
+  id_metodo_pago: number;
+  descripcion: string;
+}
+
+interface HistorialContratoItem {
+  id_contrato_mem: number;
+  plan: string;
+  metodo_pago: string;
+  tipo_operacion: string;
+  fecha_inicio: string;
+  fecha_vencimiento: string;
+  monto_pagado_local: string;
+  estado_membresia: string;
+  vigencia: string;
+  dias_restantes: number | null;
+  id_renovacion: number | null;
+}
+
+interface SocioItem {
+  id_socio: number;
+  username: string;
+  ci: string;
+  estado_cuenta: string;
+  membresia: MembresiaResumen | null;
+  historial_contratos: HistorialContratoItem[];
+}
+
+const PantallaRegistrarContratoMembresia = ({ onVolver }: { onVolver: () => void }) => {
+  const token = localStorage.getItem('access_token');
+
+  const [planes, setPlanes] = useState<PlanMembresiaItem[]>([]);
+  const [socios, setSocios] = useState<SocioItem[]>([]);
+  const [metodosPago, setMetodosPago] = useState<MetodoPagoItem[]>([]);
+
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState('');
+  const [mensaje, setMensaje] = useState('');
+  const [errorFormulario, setErrorFormulario] = useState('');
+  const [guardando, setGuardando] = useState(false);
+
+  const hoyISO = new Date().toISOString().slice(0, 10);
+
+  const formVacio = {
+    id_socio: '',
+    id_plan_membresia: '',
+    id_metodo_pago: '',
+    monto_pagado_local: '',
+  };
+
+  const [form, setForm] = useState(formVacio);
+
+  const actualizarCampo = (campo: string, valor: string) =>
+    setForm((prev) => ({ ...prev, [campo]: valor }));
+
+  const cargarDatos = async () => {
+    setCargando(true);
+    setError('');
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+      const [planesResp, sociosResp, metodosResp] = await Promise.all([
+        fetch(`${API_URL}/planes/`, { headers }),
+        fetch(`${API_URL}/socios/`, { headers }),
+        fetch(`${API_URL}/metodos-pago/`, { headers }),
+      ]);
+
+      if (!planesResp.ok || !sociosResp.ok || !metodosResp.ok) {
+        throw new Error('Error al cargar datos');
+      }
+
+      const planesData = await planesResp.json();
+      const sociosData = await sociosResp.json();
+      const metodosData = await metodosResp.json();
+
+      // CU06: solo se ofrecen planes activos en el registro.
+      setPlanes(
+        (Array.isArray(planesData) ? planesData : planesData.results || []).filter(
+          (p: PlanMembresiaItem) => p.estado === 'Activo'
+        )
+      );
+      // Los socios llegan enriquecidos con su membresía (vigencia, días
+      // restantes) e historial de contratos.
+      setSocios(Array.isArray(sociosData) ? sociosData : sociosData.results || []);
+      setMetodosPago(Array.isArray(metodosData) ? metodosData : metodosData.results || []);
+    } catch {
+      setError('No se pudieron cargar los datos necesarios.');
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  useEffect(() => {
+    cargarDatos();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const planSeleccionado = planes.find(
+    (p) => String(p.id_plan_membresia) === form.id_plan_membresia
+  );
+
+  const socioSeleccionado =
+    socios.find((s) => String(s.id_socio) === form.id_socio) || null;
+
+  const membresiaActual = socioSeleccionado?.membresia || null;
+  // Acumulación de vigencia: si el socio tiene membresía vigente, el nuevo
+  // periodo inicia al vencer la actual (contiguo); si no, inicia hoy.
+  const acumulaVigencia = membresiaActual?.estado === 'Vigente';
+  const fechaInicioEfectiva =
+    acumulaVigencia && membresiaActual?.fecha_vencimiento
+      ? membresiaActual.fecha_vencimiento
+      : hoyISO;
+
+  // Vencimiento calculado igual que el backend: inicio + duración en días.
+  const vencimiento = (() => {
+    if (!planSeleccionado) return null;
+    const fecha = new Date(`${fechaInicioEfectiva}T00:00:00`);
+    if (isNaN(fecha.getTime())) return null;
+    fecha.setDate(fecha.getDate() + planSeleccionado.duracion_dias);
+    const anio = fecha.getFullYear();
+    const mes = String(fecha.getMonth() + 1).padStart(2, '0');
+    const dia = String(fecha.getDate()).padStart(2, '0');
+    return `${anio}-${mes}-${dia}`;
+  })();
+
+  const precioPlan = planSeleccionado ? Number(planSeleccionado.costo_base_origen) : null;
+  const montoNum = form.monto_pagado_local === '' ? NaN : Number(form.monto_pagado_local);
+  // Pago exacto: debe coincidir con el precio del plan (sin pagos parciales).
+  const pagoExacto =
+    precioPlan !== null && !isNaN(montoNum) && montoNum === precioPlan;
+
+  const guardarContrato = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorFormulario('');
+    setMensaje('');
+
+    if (!form.id_socio) {
+      setErrorFormulario('Debe seleccionar un socio.');
+      return;
+    }
+    if (!form.id_plan_membresia) {
+      setErrorFormulario('Debe seleccionar un plan activo.');
+      return;
+    }
+    if (!form.id_metodo_pago) {
+      setErrorFormulario('Debe seleccionar un método de pago.');
+      return;
+    }
+    if (form.monto_pagado_local === '' || isNaN(montoNum)) {
+      setErrorFormulario('Debe indicar el monto pagado.');
+      return;
+    }
+    if (montoNum < 0) {
+      setErrorFormulario('El monto pagado no puede ser negativo.');
+      return;
+    }
+    if (!planSeleccionado || !vencimiento) {
+      setErrorFormulario('No se pudo calcular la fecha de vencimiento.');
+      return;
+    }
+    if (!pagoExacto) {
+      setErrorFormulario(
+        `El monto debe ser exactamente ${precioPlan} (precio del plan ` +
+          `"${planSeleccionado.nombre_plan}"). No se permiten pagos parciales ` +
+          `ni montos distintos.`
+      );
+      return;
+    }
+
+    const metodo = metodosPago.find((m) => String(m.id_metodo_pago) === form.id_metodo_pago);
+
+    const confirmar = window.confirm(
+      '¿Registrar el contrato de membresía?\n\n' +
+        `Socio: ${socioSeleccionado ? `${socioSeleccionado.username} (CI ${socioSeleccionado.ci})` : form.id_socio}\n` +
+        `Plan: ${planSeleccionado.nombre_plan} — ${planSeleccionado.duracion_dias} días — ${planSeleccionado.costo_base_origen}\n` +
+        `Inicio: ${fechaInicioEfectiva}${
+          acumulaVigencia ? ' (acumulado tras la vigencia actual)' : ' (hoy)'
+        } → Vence: ${vencimiento}\n` +
+        `Método de pago: ${metodo ? metodo.descripcion : form.id_metodo_pago}\n` +
+        `Monto pagado: ${montoNum}`
+    );
+
+    if (!confirmar) return;
+
+    setGuardando(true);
+    try {
+      const response = await fetch(`${API_URL}/contratos/registrar/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          id_socio: Number(form.id_socio),
+          id_plan_membresia: Number(form.id_plan_membresia),
+          id_metodo_pago: Number(form.id_metodo_pago),
+          monto_pagado_local: montoNum,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setErrorFormulario(mensajeDeError(data));
+        return;
+      }
+
+      setMensaje(
+        data.mensaje ||
+          `Contrato registrado. Vigencia ${data.contrato?.fecha_inicio || ''} → ` +
+            `${data.contrato?.fecha_vencimiento || ''}.`
+      );
+      setForm(formVacio);
+      // Recargar socios para reflejar la nueva vigencia e historial.
+      await cargarDatos();
+    } catch {
+      setErrorFormulario('No se pudo conectar con el servidor.');
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <div className="p-6 text-white">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">REGISTRAR CONTRATO DE MEMBRESÍA</h1>
+        <button onClick={onVolver} className="bg-gray-700 px-4 py-2 rounded">
+          VOLVER
+        </button>
+      </div>
+
+      {cargando ? (
+        <p>Cargando datos...</p>
+      ) : error ? (
+        <p className="text-red-400">{error}</p>
+      ) : (
+        <div className="flex flex-col gap-6 max-w-4xl">
+          <div className="bg-gray-900 p-6 rounded max-w-2xl">
+            {mensaje && <p className="mb-4 text-green-400">{mensaje}</p>}
+            {errorFormulario && <p className="mb-4 text-red-400">{errorFormulario}</p>}
+
+            <form onSubmit={guardarContrato} className="flex flex-col gap-4">
+              <div>
+                <label className="block mb-1">Socio:</label>
+                <select
+                  value={form.id_socio}
+                  onChange={(e) => actualizarCampo('id_socio', e.target.value)}
+                  className={inputCls}
+                  required
+                >
+                  <option value="">— Seleccione un socio —</option>
+                  {socios.map((s) => (
+                    <option key={s.id_socio} value={s.id_socio}>
+                      {s.username} (CI {s.ci}) — {s.membresia?.estado || 'Sin membresía'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {socioSeleccionado && (
+                <div className="bg-gray-800 p-4 rounded text-sm flex flex-col gap-1">
+                  <p className="font-bold">Membresía actual de {socioSeleccionado.username}</p>
+                  {membresiaActual ? (
+                    <>
+                      <p>
+                        Estado:{' '}
+                        <span
+                          className={`font-bold ${
+                            membresiaActual.estado === 'Vigente'
+                              ? 'text-green-400'
+                              : membresiaActual.estado === 'Vencida'
+                                ? 'text-red-400'
+                                : 'text-gray-400'
+                          }`}
+                        >
+                          {membresiaActual.estado}
+                        </span>
+                      </p>
+                      <p>
+                        Plan:{' '}
+                        <span className="font-bold">{membresiaActual.plan || '—'}</span>
+                      </p>
+                      <p>
+                        Vigencia: {membresiaActual.fecha_inicio || '—'} →{' '}
+                        {membresiaActual.fecha_vencimiento || '—'}
+                      </p>
+                      <p>
+                        Días restantes:{' '}
+                        <span className="font-bold">
+                          {membresiaActual.dias_restantes ?? '—'}
+                        </span>
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-gray-400">Sin membresía registrada.</p>
+                  )}
+                </div>
+              )}
+
+              <div>
+                <label className="block mb-1">Plan de membresía (solo activos):</label>
+                <select
+                  value={form.id_plan_membresia}
+                  onChange={(e) => actualizarCampo('id_plan_membresia', e.target.value)}
+                  className={inputCls}
+                  required
+                >
+                  <option value="">— Seleccione un plan —</option>
+                  {planes.map((p) => (
+                    <option key={p.id_plan_membresia} value={p.id_plan_membresia}>
+                      {p.nombre_plan} — {p.duracion_dias} días — {p.costo_base_origen}
+                    </option>
+                  ))}
+                </select>
+                {planes.length === 0 && (
+                  <p className="mt-1 text-sm text-gray-400">
+                    No hay planes activos disponibles.
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block mb-1">Método de pago:</label>
+                  <select
+                    value={form.id_metodo_pago}
+                    onChange={(e) => actualizarCampo('id_metodo_pago', e.target.value)}
+                    className={inputCls}
+                    required
+                  >
+                    <option value="">— Seleccione —</option>
+                    {metodosPago.map((m) => (
+                      <option key={m.id_metodo_pago} value={m.id_metodo_pago}>
+                        {m.descripcion}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block mb-1">
+                    Monto pagado{precioPlan !== null ? ` (exacto: ${precioPlan})` : ''}:
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={form.monto_pagado_local}
+                    onChange={(e) => actualizarCampo('monto_pagado_local', e.target.value)}
+                    className={inputCls}
+                    required
+                  />
+                </div>
+              </div>
+
+              {planSeleccionado && (
+                <div className="bg-gray-800 p-4 rounded text-sm flex flex-col gap-1">
+                  <p>
+                    Precio del plan (pago exacto):{' '}
+                    <span className="font-bold">{planSeleccionado.costo_base_origen}</span>
+                  </p>
+                  <p>
+                    Inicio:{' '}
+                    <span className="font-bold">{fechaInicioEfectiva}</span>{' '}
+                    {acumulaVigencia
+                      ? '(acumula tras la vigencia actual)'
+                      : '(hoy)'}
+                  </p>
+                  <p>
+                    Vencimiento estimado:{' '}
+                    <span className="font-bold">{vencimiento || '—'}</span> (
+                    {planSeleccionado.duracion_dias} días)
+                  </p>
+                  <p>
+                    Pago:{' '}
+                    <span
+                      className={`font-bold ${
+                        pagoExacto ? 'text-green-400' : 'text-yellow-400'
+                      }`}
+                    >
+                      {pagoExacto
+                        ? 'Exacto — membresía Activa'
+                        : `Debe ser exactamente ${precioPlan}`}
+                    </span>
+                  </p>
+                </div>
+              )}
+
+              <div className="flex gap-3 mt-3">
+                <button
+                  type="submit"
+                  disabled={guardando}
+                  className="bg-yellow-500 text-black px-5 py-2 rounded font-bold"
+                >
+                  {guardando ? 'REGISTRANDO...' : 'REGISTRAR CONTRATO'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForm(formVacio);
+                    setErrorFormulario('');
+                  }}
+                  className="bg-red-600 px-5 py-2 rounded"
+                >
+                  CANCELAR
+                </button>
+              </div>
+            </form>
+
+            {socioSeleccionado && socioSeleccionado.historial_contratos.length > 0 && (
+              <div className="mt-6">
+                <h3 className="font-bold mb-2">
+                  Historial de contratos de {socioSeleccionado.username}
+                </h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse text-sm">
+                    <thead>
+                      <tr className="bg-gray-800">
+                        <th className="p-2 text-left">Plan</th>
+                        <th className="p-2 text-left">Tipo</th>
+                        <th className="p-2 text-left">Inicio</th>
+                        <th className="p-2 text-left">Vence</th>
+                        <th className="p-2 text-left">Monto</th>
+                        <th className="p-2 text-left">Método</th>
+                        <th className="p-2 text-left">Vigencia</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {socioSeleccionado.historial_contratos.map((h) => (
+                        <tr key={h.id_contrato_mem} className="border-b border-gray-700">
+                          <td className="p-2">{h.plan}</td>
+                          <td className="p-2">{h.tipo_operacion}</td>
+                          <td className="p-2">{h.fecha_inicio}</td>
+                          <td className="p-2">{h.fecha_vencimiento}</td>
+                          <td className="p-2">{h.monto_pagado_local}</td>
+                          <td className="p-2">{h.metodo_pago}</td>
+                          <td className="p-2">
+                            <span
+                              className={`font-bold ${
+                                h.vigencia === 'Vigente'
+                                  ? 'text-green-400'
+                                  : h.vigencia === 'Vencida'
+                                    ? 'text-red-400'
+                                    : 'text-yellow-400'
+                              }`}
+                            >
+                              {h.vigencia}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Consulta de socios y membresías (CU06). */}
+          <div className="bg-gray-900 p-6 rounded">
+            <h2 className="text-xl font-bold mb-3">Consulta de socios y membresías</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="bg-gray-800">
+                    <th className="p-2 text-left">ID</th>
+                    <th className="p-2 text-left">Usuario</th>
+                    <th className="p-2 text-left">CI</th>
+                    <th className="p-2 text-left">Cuenta</th>
+                    <th className="p-2 text-left">Plan</th>
+                    <th className="p-2 text-left">Estado</th>
+                    <th className="p-2 text-left">Vence</th>
+                    <th className="p-2 text-left">Días restantes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {socios.map((s) => (
+                    <tr key={s.id_socio} className="border-b border-gray-700">
+                      <td className="p-2">{s.id_socio}</td>
+                      <td className="p-2">{s.username}</td>
+                      <td className="p-2">{s.ci}</td>
+                      <td className="p-2">{s.estado_cuenta}</td>
+                      <td className="p-2">{s.membresia?.plan || '—'}</td>
+                      <td className="p-2">
+                        <span
+                          className={`font-bold ${
+                            s.membresia?.estado === 'Vigente'
+                              ? 'text-green-400'
+                              : s.membresia?.estado === 'Vencida'
+                                ? 'text-red-400'
+                                : 'text-gray-400'
+                          }`}
+                        >
+                          {s.membresia?.estado || 'Sin membresía'}
+                        </span>
+                      </td>
+                      <td className="p-2">{s.membresia?.fecha_vencimiento || '—'}</td>
+                      <td className="p-2">
+                        {s.membresia?.dias_restantes ?? '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {socios.length === 0 && (
+                <p className="mt-4 text-gray-400">No hay socios registrados.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export default function App() {
   const token = localStorage.getItem('access_token');
 
-  const [pantalla, setPantalla] = useState<'inicio' | 'usuarios' | 'bitacora' | 'registrar-socio'>('inicio');
+  const [pantalla, setPantalla] = useState<'inicio' | 'usuarios' | 'bitacora' | 'registrar-socio' | 'planes' | 'contrato'>('inicio');
   // Ruta del enlace de recuperación: /reset-password/{uid}/{token}/
   const matchReset = window.location.pathname.match(/^\/reset-password\/([^/]+)\/([^/]+)\/?$/);
 
@@ -2156,6 +3234,8 @@ export default function App() {
         onGestionUsuarios={() => setPantalla('usuarios')}
         onBitacora={() => setPantalla('bitacora')}
         onRegistrarSocio={() => setPantalla('registrar-socio')}
+        onPlanes={() => setPantalla('planes')}
+        onRegistrarContrato={() => setPantalla('contrato')}
       />
       <main className="p-4">
         {!token ? (
@@ -2170,6 +3250,14 @@ export default function App() {
           />
         ) : pantalla === 'registrar-socio' ? (
           <PantallaRegistrarSocio
+            onVolver={() => setPantalla('inicio')}
+          />
+        ) : pantalla === 'planes' ? (
+          <PantallaPlanesMembresia
+            onVolver={() => setPantalla('inicio')}
+          />
+        ) : pantalla === 'contrato' ? (
+          <PantallaRegistrarContratoMembresia
             onVolver={() => setPantalla('inicio')}
           />
         ) : (

@@ -5,9 +5,9 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     RegistroView, UsuarioViewSet, SocioViewSet,
-    PlanMembresiaViewSet, VentaViewSet, ProductoViewSet,
+    PlanMembresiaViewSet, MetodoPagoViewSet, VentaViewSet, ProductoViewSet,
     EjercicioViewSet, RutinaViewSet, LoginView,
-    BitacoraViewSet, RegistrarSocioView,
+    BitacoraViewSet, RegistrarSocioView, RegistrarContratoMembresiaView,
 )
 
 # Configuración del Router para los ViewSets
@@ -15,6 +15,7 @@ router = DefaultRouter()
 router.register(r'usuarios', UsuarioViewSet)
 router.register(r'socios', SocioViewSet)
 router.register(r'planes', PlanMembresiaViewSet)
+router.register(r'metodos-pago', MetodoPagoViewSet)  # CU06: catálogo de pago
 router.register(r'ventas', VentaViewSet)
 router.register(r'productos', ProductoViewSet)
 router.register(r'ejercicios', EjercicioViewSet)
@@ -31,6 +32,8 @@ urlpatterns = [
     path('auth/confirmar-reset/<uidb64>/<token>/', ConfirmarResetPasswordView.as_view(), name='confirmar_reset'),
     # CU04: Registrar Expediente de Socio (alta desde Recepción)
     path('socios/registrar/', RegistrarSocioView.as_view(), name='registrar_socio'),
+    # CU06: Registrar Contrato de Membresía (socio existente + plan activo)
+    path('contratos/registrar/', RegistrarContratoMembresiaView.as_view(), name='registrar_contrato'),
     # Rutas generadas por el Router
     path('', include(router.urls)),
 ]

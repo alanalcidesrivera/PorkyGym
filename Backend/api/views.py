@@ -15,14 +15,17 @@ from django.utils.encoding import force_bytes, force_str
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .emails import enviar_correo_brevo
 
 from rest_framework.permissions import AllowAny
-from .models import Usuario, Socio, PlanMembresia, Venta, Producto, Ejercicio, Rutina, Bitacora
+from .models import Usuario, Socio, PlanMembresia, MetodoPago, Venta, Producto, Ejercicio, Rutina, Bitacora
+from .membresias import asegurar_metodos_pago
 from .serializers import (
     RegistroUsuarioSerializer, UsuarioSerializer, SocioSerializer,
-    PlanMembresiaSerializer, VentaSerializer, ProductoSerializer,
+    PlanMembresiaSerializer, MetodoPagoSerializer, ContratoMembresiaSerializer,
+    RegistrarContratoMembresiaSerializer, VentaSerializer, ProductoSerializer,
     EjercicioSerializer, RutinaSerializer, LoginSerializer,
     BitacoraSerializer, RegistrarSocioSerializer,
 )
@@ -219,6 +222,21 @@ class EsRecepcionistaOAdministrador(permissions.BasePermission):
         )
 
 
+class EsAdministradorORecepcionista(permissions.BasePermission):
+    """Lectura de catálogos (planes): Administrador y Recepcionista.
+
+    CU04 (Registrar Expediente de Socio) necesita listar los planes activos
+    para asignar la membresía inicial, por eso la consulta se mantiene
+    disponible para ambos roles.
+    """
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and (request.user.es_administrador or request.user.es_recepcionista)
+        )
+
+
 def _roles_texto(usuario):
     roles = []
     if usuario.es_administrador:
@@ -313,10 +331,153 @@ class RegistrarSocioView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
+# ----------------------------------------------------------------------------
+# CU05: ADMINISTRAR PLANES DE MEMBRESÍA
+# El Administrador crea, edita, activa y desactiva planes. La lectura queda
+# disponible para Recepcionista y Administrador (CU04 la usa al registrar
+# socios). Los planes NO se eliminan físicamente: se desactivan para conservar
+# el historial y las relaciones de los contratos que los referencian.
+# ----------------------------------------------------------------------------
 class PlanMembresiaViewSet(viewsets.ModelViewSet):
     queryset = PlanMembresia.objects.all()
     serializer_class = PlanMembresiaSerializer
-    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        # Lectura: CU04 (Registrar Socio) y CU05 (listar) → Admin/Recepcionista.
+        if self.action in ('list', 'retrieve'):
+            return [EsAdministradorORecepcionista()]
+        # Escritura y acciones administrativas: solo Administrador.
+        return [EsAdministrador()]
+
+    def perform_create(self, serializer):
+        plan = serializer.save()
+        registrar_bitacora(
+            self.request, 'CREATE', 'plan_membresia',
+            f"El administrador '{self.request.user.username}' creó el plan "
+            f"'{plan.nombre_plan}' ({plan.duracion_dias} días, "
+            f"{plan.costo_base_origen} {plan.moneda_origen}).",
+            usuario=self.request.user,
+        )
+
+    def perform_update(self, serializer):
+        anterior = self.get_object()
+        plan = serializer.save()
+        cambios = []
+        if anterior.nombre_plan != plan.nombre_plan:
+            cambios.append(f"nombre: {anterior.nombre_plan} → {plan.nombre_plan}")
+        if float(anterior.costo_base_origen) != float(plan.costo_base_origen):
+            cambios.append(f"costo: {anterior.costo_base_origen} → {plan.costo_base_origen}")
+        if anterior.duracion_dias != plan.duracion_dias:
+            cambios.append(f"duracion: {anterior.duracion_dias} → {plan.duracion_dias} días")
+        if anterior.estado != plan.estado:
+            cambios.append(f"estado: {anterior.estado} → {plan.estado}")
+        registrar_bitacora(
+            self.request, 'UPDATE', 'plan_membresia',
+            f"El administrador '{self.request.user.username}' modificó el plan "
+            f"'{plan.nombre_plan}' ({'; '.join(cambios) if cambios else 'sin cambios registrados'}).",
+            usuario=self.request.user,
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        # CU05: nunca se elimina físicamente; se desactiva (conserva contratos).
+        plan = self.get_object()
+        registrar_bitacora(
+            request, 'DELETE', 'plan_membresia',
+            f"Intento de eliminación del plan '{plan.nombre_plan}' bloqueado: "
+            f"debe usarse la desactivación para cambios de estado.",
+            usuario=request.user,
+        )
+        return Response(
+            {'error': 'No se permite eliminar físicamente un plan de membresía. '
+                      'Use la acción de desactivación para cambios de estado.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    @action(detail=True, methods=['post'])
+    def activar(self, request, pk=None):
+        plan = self.get_object()
+        if plan.estado == 'Activo':
+            return Response({'mensaje': f"El plan '{plan.nombre_plan}' ya está activo."})
+        plan.estado = 'Activo'
+        plan.save(update_fields=['estado'])
+        registrar_bitacora(
+            request, 'UPDATE', 'plan_membresia',
+            f"El administrador '{request.user.username}' activó el plan '{plan.nombre_plan}'.",
+            usuario=request.user,
+        )
+        return Response(PlanMembresiaSerializer(plan).data)
+
+    @action(detail=True, methods=['post'])
+    def desactivar(self, request, pk=None):
+        plan = self.get_object()
+        if plan.estado == 'Inactivo':
+            return Response({'mensaje': f"El plan '{plan.nombre_plan}' ya está inactivo."})
+        plan.estado = 'Inactivo'
+        plan.save(update_fields=['estado'])
+        registrar_bitacora(
+            request, 'UPDATE', 'plan_membresia',
+            f"El administrador '{request.user.username}' desactivó el plan '{plan.nombre_plan}'.",
+            usuario=request.user,
+        )
+        return Response(PlanMembresiaSerializer(plan).data)
+
+
+# ----------------------------------------------------------------------------
+# CU06: MÉTODOS DE PAGO DISPONIBLES (catálogo)
+# Lectura exclusiva para Administrador y Recepcionista (se usa en el registro
+# de contratos de membresía).
+# ----------------------------------------------------------------------------
+class MetodoPagoViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = MetodoPago.objects.all()
+    serializer_class = MetodoPagoSerializer
+    permission_classes = [EsAdministradorORecepcionista]
+
+    def list(self, request, *args, **kwargs):
+        # Garantiza de forma idempotente que existan los métodos base
+        # (Efectivo y Transferencia bancaria) antes de exponer el catálogo,
+        # sin duplicar ni alterar los ya existentes.
+        asegurar_metodos_pago()
+        return super().list(request, *args, **kwargs)
+
+
+# ----------------------------------------------------------------------------
+# CU06: REGISTRAR CONTRATO DE MEMBRESÍA
+# Crea el contrato de un socio existente con un plan activo y un método de
+# pago real. El vencimiento se calcula con la duración en días del plan y el
+# estado de la membresía depende de la cobertura del pago (Activa/Pendiente).
+# La operación es atómica (transaction.atomic) y se registra en la bitácora.
+# No modifica la cuenta del socio ni su estado de la cuenta.
+# ----------------------------------------------------------------------------
+class RegistrarContratoMembresiaView(APIView):
+    permission_classes = [EsRecepcionistaOAdministrador]
+
+    def post(self, request):
+        serializer = RegistrarContratoMembresiaSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            contrato = serializer.save()
+
+        socio = contrato.id_socio.id_socio
+        registrar_bitacora(
+            request,
+            'CREATE',
+            'contrato_membresia',
+            f"'{request.user.username}' registró un contrato de membresía "
+            f"para el socio '{socio.username}' (plan '{contrato.id_plan_mem.nombre_plan}', "
+            f"monto {contrato.monto_pagado_local}, estado '{contrato.estado_membresia}', "
+            f"vigencia {contrato.fecha_inicio} → {contrato.fecha_vencimiento}).",
+            usuario=request.user,
+        )
+
+        return Response(
+            {
+                'mensaje': 'Contrato de membresía registrado exitosamente.',
+                'contrato': ContratoMembresiaSerializer(contrato).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # ----------------------------------------------------------------------------
