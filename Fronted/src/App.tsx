@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import EntrenamientoScreen from './components/EntrenamientoScreen';
+import EntrenadoresScreen from './components/EntrenadoresScreen';
 
 // URL base del backend Django
 const API_URL = 'http://127.0.0.1:8000/api';
@@ -133,6 +134,7 @@ interface NavbarProps {
   onGestionUsuarios: () => void;
   onBitacora: () => void;
   onRegistrarSocio: () => void;
+  onEntrenadores: () => void;
   onPlanes: () => void;
   onRegistrarContrato: () => void;
   onEntrenamiento: () => void;
@@ -144,6 +146,7 @@ export const Navbar = ({
   onGestionUsuarios,
   onBitacora,
   onRegistrarSocio,
+  onEntrenadores,
   onPlanes,
   onRegistrarContrato,
   onEntrenamiento,
@@ -173,16 +176,19 @@ export const Navbar = ({
 
       {/* PAQUETE 1: SEGURIDAD, AUTENTICACIÓN Y AUDITORÍA */}
 
-      {/* Menú desplegable: Gestión de usuarios + Agregar nuevo socio.
-          Visible para Administrador y Recepcionista. Cada opción conserva
-          su propio permiso (Administrador ve ambas; Recepcionista solo el alta). */}
+      {/* Menú desplegable: Gestión de usuarios + Agregar nuevo socio +
+          Entrenadores. Visible para Administrador y Recepcionista. Cada opción
+          conserva su propio permiso (Administrador ve las tres; Recepcionista
+          solo el alta de socios). */}
       {(usuario.es_administrador || usuario.es_recepcionista) && (
         <div className="relative">
           <button
             onClick={() => setMenuUsuariosAbierto((abierto) => !abierto)}
             aria-expanded={menuUsuariosAbierto}
             className={`${
-              pantallaActual === 'usuarios' || pantallaActual === 'registrar-socio'
+              pantallaActual === 'usuarios' ||
+              pantallaActual === 'registrar-socio' ||
+              pantallaActual === 'entrenadores'
                 ? btnActivo
                 : btnInactivo
             } flex items-center gap-1`}
@@ -220,6 +226,24 @@ export const Navbar = ({
                   }`}
                 >
                   Agregar nuevo socio
+                </button>
+              )}
+
+              {/* CU20: Gestionar Perfil de Entrenador — solo Administrador.
+                  Tercera opción del menú: abre el listado, alta y baja de
+                  entrenadores (antes era una pestaña del módulo de
+                  entrenamiento y una tarjeta de Gestión de usuarios). */}
+              {usuario.es_administrador && (
+                <button
+                  onClick={() => {
+                    onEntrenadores();
+                    setMenuUsuariosAbierto(false);
+                  }}
+                  className={`text-left px-4 py-2 whitespace-nowrap hover:bg-gray-700 ${
+                    pantallaActual === 'entrenadores' ? 'text-yellow-400 font-bold' : 'text-white'
+                  }`}
+                >
+                  Entrenadores
                 </button>
               )}
             </div>
@@ -764,13 +788,11 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
 
     es_administrador: false,
     es_recepcionista: false,
-    es_entrenador: false,
     es_socio: false,
   });
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<
     'administradores' |
     'recepcionistas' |
-    'entrenadores' |
     'socios' |
     'sin_rol' |
     null
@@ -790,7 +812,6 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
 
     es_administrador: false,
     es_recepcionista: false,
-    es_entrenador: false,
     es_socio: false,
   });
 
@@ -847,11 +868,6 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
           (usuario) => usuario.es_recepcionista
         );
 
-      case 'entrenadores':
-        return usuarios.filter(
-          (usuario) => usuario.es_entrenador
-        );
-
       case 'socios':
         return usuarios.filter(
           (usuario) => usuario.es_socio
@@ -878,9 +894,6 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
       case 'recepcionistas':
         return 'RECEPCIONISTAS';
 
-      case 'entrenadores':
-        return 'ENTRENADORES';
-
       case 'socios':
         return 'SOCIOS';
 
@@ -902,7 +915,6 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
 
       es_administrador: usuario.es_administrador,
       es_recepcionista: usuario.es_recepcionista,
-      es_entrenador: usuario.es_entrenador,
       es_socio: usuario.es_socio,
     });
 
@@ -920,7 +932,6 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
     const tieneRol =
       formEdicion.es_administrador ||
       formEdicion.es_recepcionista ||
-      formEdicion.es_entrenador ||
       formEdicion.es_socio;
 
     if (!tieneRol) {
@@ -946,13 +957,15 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
     try {
       const token = localStorage.getItem('access_token');
 
+      // El rol Entrenador no se gestiona desde este formulario (existe el
+      // flujo independiente «Entrenadores», CU20): por eso no se envía y la
+      // API lo conserva sin modificar en la actualización parcial.
       const datos: any = {
         username: formEdicion.username,
         email: formEdicion.email,
 
         es_administrador: formEdicion.es_administrador,
         es_recepcionista: formEdicion.es_recepcionista,
-        es_entrenador: formEdicion.es_entrenador,
         es_socio: formEdicion.es_socio,
       };
 
@@ -1117,7 +1130,6 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
     const tieneRol =
       nuevoUsuario.es_administrador ||
       nuevoUsuario.es_recepcionista ||
-      nuevoUsuario.es_entrenador ||
       nuevoUsuario.es_socio;
 
     if (!tieneRol) {
@@ -1170,7 +1182,6 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
 
         es_administrador: false,
         es_recepcionista: false,
-        es_entrenador: false,
         es_socio: false,
       });
 
@@ -1352,25 +1363,11 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
                   Recepcionista
                 </label>
 
-
-                <label className="flex gap-2">
-                  <input
-                    type="checkbox"
-                    checked={nuevoUsuario.es_entrenador}
-                    onChange={(e) =>
-                      setNuevoUsuario({
-                        ...nuevoUsuario,
-                        es_entrenador: e.target.checked,
-                      })
-                    }
-                  />
-                  Entrenador
-                </label>
-
               </div>
 
               <p className="mt-3 text-sm text-gray-400">
-                El registro de socios se realiza desde «Registrar nuevo socio».
+                El registro de socios se realiza desde «Agregar nuevo socio» y
+                el de entrenadores desde «Entrenadores».
               </p>
 
             </div>
@@ -1533,20 +1530,6 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
                 <label className="flex gap-2">
                   <input
                     type="checkbox"
-                    checked={formEdicion.es_entrenador}
-                    onChange={(e) =>
-                      setFormEdicion({
-                        ...formEdicion,
-                        es_entrenador: e.target.checked,
-                      })
-                    }
-                  />
-                  Entrenador
-                </label>
-
-                <label className="flex gap-2">
-                  <input
-                    type="checkbox"
                     checked={formEdicion.es_socio}
                     onChange={(e) =>
                       setFormEdicion({
@@ -1621,24 +1604,6 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
               {
                 usuarios.filter(
                   (usuario) => usuario.es_recepcionista
-                ).length
-              } usuario(s)
-            </p>
-          </button>
-
-
-          <button
-            onClick={() => setCategoriaSeleccionada('entrenadores')}
-            className="bg-gray-900 border border-gray-700 p-6 rounded text-left hover:bg-gray-800"
-          >
-            <h2 className="text-xl font-bold">
-              ENTRENADORES
-            </h2>
-
-            <p className="mt-2 text-gray-300">
-              {
-                usuarios.filter(
-                  (usuario) => usuario.es_entrenador
                 ).length
               } usuario(s)
             </p>
@@ -3229,7 +3194,14 @@ export default function App() {
   const token = localStorage.getItem('access_token');
 
   const [pantalla, setPantalla] = useState<
-    'inicio' | 'usuarios' | 'bitacora' | 'registrar-socio' | 'planes' | 'contrato' | 'entrenamiento'
+    | 'inicio'
+    | 'usuarios'
+    | 'bitacora'
+    | 'registrar-socio'
+    | 'entrenadores'
+    | 'planes'
+    | 'contrato'
+    | 'entrenamiento'
   >('inicio');
   // Ruta del enlace de recuperación: /reset-password/{uid}/{token}/
   const matchReset = window.location.pathname.match(/^\/reset-password\/([^/]+)\/([^/]+)\/?$/);
@@ -3250,6 +3222,7 @@ export default function App() {
         onGestionUsuarios={() => setPantalla('usuarios')}
         onBitacora={() => setPantalla('bitacora')}
         onRegistrarSocio={() => setPantalla('registrar-socio')}
+        onEntrenadores={() => setPantalla('entrenadores')}
         onPlanes={() => setPantalla('planes')}
         onRegistrarContrato={() => setPantalla('contrato')}
         onEntrenamiento={() => setPantalla('entrenamiento')}
@@ -3259,6 +3232,10 @@ export default function App() {
           <AuthGate />
         ) : pantalla === 'usuarios' ? (
           <GestionUsuarios
+            onVolver={() => setPantalla('inicio')}
+          />
+        ) : pantalla === 'entrenadores' ? (
+          <EntrenadoresScreen
             onVolver={() => setPantalla('inicio')}
           />
         ) : pantalla === 'bitacora' ? (

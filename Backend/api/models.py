@@ -37,6 +37,7 @@ NIVELES_RUTINA = [
 ]
 
 
+
 class Usuario(AbstractUser):
     ci = models.CharField(max_length=20, unique=True, null=True, blank=True)
     telefono = models.CharField(max_length=20, null=True, blank=True)
@@ -348,6 +349,14 @@ class MarcacionAcceso(models.Model):
 
 
 class AsignacionRutina(models.Model):
+    # 1. PEGA LAS OPCIONES AQUÍ ARRIBA:
+    TURNO_CHOICES = [
+        ('mañana', 'Mañana'),
+        ('mediodia', 'Mediodía'),
+        ('tarde', 'Tarde'),
+        ('noche', 'Noche'),
+    ]
+
     id_asignacion_rutina = models.AutoField(primary_key=True)
     id_entrenador = models.ForeignKey(Entrenador, on_delete=models.RESTRICT, db_column='id_entrenador')
     id_socio = models.ForeignKey(Socio, on_delete=models.CASCADE, db_column='id_socio')
@@ -357,10 +366,12 @@ class AsignacionRutina(models.Model):
     fecha_fin = models.DateField(null=True, blank=True)
     observaciones = models.TextField(null=True, blank=True)
     estado = models.CharField(max_length=20, default='Activa')
+    
+    # 2. PEGA EL CAMPO TURNO AQUÍ ABAJO (usando 'choices' y un max_length adecuado):
+    turno = models.CharField(max_length=20, choices=TURNO_CHOICES, default='mañana')
 
     class Meta:
         db_table = 'asignacion_rutina'
-
 
 class DetalleRutina(models.Model):
     id_rutina = models.ForeignKey(

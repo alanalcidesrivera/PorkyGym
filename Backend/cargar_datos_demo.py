@@ -71,6 +71,7 @@ print('2/5 Turnos')
 turnos = {}
 for nombre, inicio, fin in (
     ('Mañana', '07:00', '12:00'),
+    ('Mediodía', '12:00', '14:00'),
     ('Tarde', '14:00', '19:00'),
     ('Noche', '19:00', '22:00'),
 ):

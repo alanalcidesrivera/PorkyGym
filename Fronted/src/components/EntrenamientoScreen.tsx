@@ -1,66 +1,45 @@
 // src/components/EntrenamientoScreen.tsx
 // ============================================================================
-// Módulo de ENTRENAMIENTO — CU17, CU18, CU19 y CU20.
+// Módulo de ENTRENAMIENTO — CU17, CU18 y CU19.
 //
 //   CU17  Registrar Ejercicio            → pestaña «Ejercicios»
 //   CU18  Diseñar Rutina de Entrenamiento→ pestaña «Rutinas»
 //   CU19  Asignar Rutina a Socio         → pestaña «Asignar rutina»
-//   CU20  Gestionar Perfil de Entrenador → pestaña «Entrenadores»
+//   CU20  Gestionar Perfil de Entrenador → pantalla «Entrenadores»
+//         (se abre desde el menú «Gestión de usuarios»; ver EntrenadoresScreen)
 //
 // Toda la comunicación con Django pasa por la capa de servicios
 // (src/services/entrenamiento.service.ts), que a su vez usa la instancia
-// compartida `api`. Los estilos siguen el lenguaje visual del sistema:
-// fondo negro, acento amarillo (#E2FF00) y tipografía Bebas para títulos.
+// compartida `api`. Los estilos y helpers comunes viven en
+// src/components/entrenamientoStyles.ts, de modo que todas las pantallas del
+// módulo mantienen el lenguaje visual del sistema: fondo negro, acento
+// amarillo (#E2FF00) y tipografía Bebas para títulos.
 // ============================================================================
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Entrenador,
   Ejercicio,
-  HorarioEntrenador,
   Rutina,
   AsignacionRutina,
   SocioOption,
-  Turno,
   DetalleRutina,
   PlanRutina,
 } from '../services/entrenamiento.service';
 import * as svc from '../services/entrenamiento.service';
+// Estilos y helpers compartidos con la pantalla «Entrenadores» (CU20).
+import {
+  inputCls,
+  btnPrincipal,
+  btnSecundario,
+  btnPeligro,
+  tarjeta,
+  errorDeAxios,
+} from './entrenamientoStyles';
 
 // ---------------------------------------------------------------------------
-// Estilos compartidos (consistentes con el resto de la aplicación)
+// Constantes propias de este módulo
 // ---------------------------------------------------------------------------
-const inputCls =
-  'w-full p-2 bg-gray-800 text-white rounded border border-gray-700 focus:border-yellow-500 outline-none';
-const btnPrincipal =
-  'bg-yellow-500 text-black px-4 py-2 rounded font-bold hover:bg-yellow-400 transition-colors disabled:opacity-50 disabled:cursor-not-allowed';
-const btnSecundario = 'bg-gray-700 px-4 py-2 rounded hover:bg-gray-600 transition-colors';
-const btnPeligro = 'bg-red-600 px-3 py-1 rounded hover:bg-red-500 transition-colors';
-const tarjeta = 'bg-gray-900 border border-gray-700 p-5 rounded';
-
 const NIVELES = ['Principiante', 'Intermedio', 'Avanzado'];
-const DIAS = ['Lunes', 'Martes', 'Miercoles', 'Jueves', 'Viernes', 'Sabado', 'Domingo'];
-
-// Convierte la respuesta de DRF (puede traer errores como {campo: [msgs]})
-// en un texto legible para mostrar al usuario.
-const mensajeDeError = (data: unknown): string => {
-  if (!data) return 'Error del servidor.';
-  if (typeof data === 'string') return data;
-  const obj = data as Record<string, unknown>;
-  if (obj.detail) return String(obj.detail);
-  if (obj.error) return Array.isArray(obj.error) ? obj.error.join('. ') : String(obj.error);
-  for (const clave of Object.keys(obj)) {
-    const valor = obj[clave];
-    if (Array.isArray(valor) && valor.length > 0) return `${clave}: ${valor.join(', ')}`;
-    if (typeof valor === 'string' && valor) return `${clave}: ${valor}`;
-  }
-  return 'Error del servidor.';
-};
-
-// Extrae el mensaje de una respuesta de error de axios.
-const errorDeAxios = (err: unknown): string => {
-  const respuesta = (err as { response?: { data?: unknown } }).response;
-  return mensajeDeError(respuesta?.data);
-};
 
 // Roles del usuario autenticado (los guarda el login en localStorage).
 // El Socio no diseña contenido: ve el módulo en modo solo lectura.
@@ -81,7 +60,7 @@ interface Props {
   onVolver: () => void;
 }
 
-type Pestana = 'ejercicios' | 'rutinas' | 'asignar' | 'entrenadores' | 'mis-rutinas';
+type Pestana = 'ejercicios' | 'rutinas' | 'asignar' | 'mis-rutinas';
 
 export const EntrenamientoScreen: React.FC<Props> = ({ onVolver }) => {
   const { esEntrenador, esAdministrador } = rolesDelUsuario();
@@ -111,7 +90,6 @@ export const EntrenamientoScreen: React.FC<Props> = ({ onVolver }) => {
         { id: 'ejercicios', etiqueta: 'EJERCICIOS' },
         { id: 'rutinas', etiqueta: 'RUTINAS' },
         { id: 'asignar', etiqueta: 'ASIGNAR RUTINA' },
-        { id: 'entrenadores', etiqueta: 'ENTRENADORES' },
       ];
 
   return (
@@ -151,9 +129,6 @@ export const EntrenamientoScreen: React.FC<Props> = ({ onVolver }) => {
       )}
       {pestana === 'mis-rutinas' && <PestanaMisRutinas />}
       {pestana === 'asignar' && <PestanaAsignar onMensaje={aviso} onFallo={fallo} />}
-      {pestana === 'entrenadores' && (
-        <PestanaEntrenadores onMensaje={aviso} onFallo={fallo} />
-      )}
     </div>
   );
 };
@@ -1309,8 +1284,8 @@ const PestanaAsignar: React.FC<PestanaProps> = ({ onMensaje, onFallo }) => {
               </select>
               {entrenadores.length === 0 && !esEntrenador && (
                 <p className="text-yellow-400 text-xs mt-1">
-                  No hay entrenadores activos: regístrelos primero en la pestaña
-                  «ENTRENADORES».
+                  No hay entrenadores activos: regístrelos primero desde la
+                  opción «Entrenadores» del menú «Gestión de usuarios».
                 </p>
               )}
             </div>
@@ -1407,430 +1382,6 @@ const PestanaAsignar: React.FC<PestanaProps> = ({ onMensaje, onFallo }) => {
               ))}
             </tbody>
           </table>
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ============================================================================
-// CU20 — GESTIONAR PERFIL DE ENTRENADOR
-// Alta completa (cuenta + perfil + horarios), listado y baja lógica.
-// ============================================================================
-const PestanaEntrenadores: React.FC<PestanaProps> = ({ onMensaje, onFallo }) => {
-  const [entrenadores, setEntrenadores] = useState<Entrenador[]>([]);
-  const [turnos, setTurnos] = useState<Turno[]>([]);
-  const [cargando, setCargando] = useState(true);
-  const [mostrarForm, setMostrarForm] = useState(false);
-  const [guardando, setGuardando] = useState(false);
-  const [estadoFiltro, setEstadoFiltro] = useState('');
-
-  const vacio = {
-    username: '',
-    email: '',
-    ci: '',
-    telefono: '',
-    password: '',
-    password2: '',
-    especialidad: '',
-    certificado: '',
-    biografia_profesional: '',
-    anios_experiencia: '',
-    red_social_link: '',
-  };
-  const [form, setForm] = useState(vacio);
-  // Horarios nuevos: se envían como [{id_turno, dia_semana}].
-  const [horariosNuevos, setHorariosNuevos] = useState<{ id_turno: string; dia_semana: string }[]>([]);
-
-  const cargar = useCallback(async () => {
-    setCargando(true);
-    try {
-      const [lista, listaTurnos] = await Promise.all([
-        svc.listarEntrenadores({ estado: estadoFiltro || undefined }),
-        svc.listarTurnos(),
-      ]);
-      setEntrenadores(lista);
-      setTurnos(listaTurnos);
-    } catch {
-      onFallo('No se pudieron cargar los entrenadores.');
-    } finally {
-      setCargando(false);
-    }
-  }, [estadoFiltro, onFallo]);
-
-  useEffect(() => {
-    void cargar();
-  }, [cargar]);
-
-  const agregarHorario = () => {
-    setHorariosNuevos((prev) => [...prev, { id_turno: '', dia_semana: DIAS[0] }]);
-  };
-
-  const guardar = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (!form.username.trim() || !form.ci.trim()) {
-      onFallo('Usuario y CI son obligatorios.');
-      return;
-    }
-    if (form.password.length < 8) {
-      onFallo('La contraseña debe tener al menos 8 caracteres.');
-      return;
-    }
-    if (form.password !== form.password2) {
-      onFallo('Las contraseñas no coinciden.');
-      return;
-    }
-
-    const horarios = horariosNuevos
-      .filter((h) => h.id_turno)
-      .map((h) => ({ id_turno: Number(h.id_turno), dia_semana: h.dia_semana }));
-
-    setGuardando(true);
-    try {
-      await svc.registrarEntrenador({
-        username: form.username.trim(),
-        email: form.email.trim() || undefined,
-        ci: form.ci.trim(),
-        telefono: form.telefono.trim() || undefined,
-        password: form.password,
-        password2: form.password2,
-        especialidad: form.especialidad.trim() || undefined,
-        certificado: form.certificado.trim() || undefined,
-        biografia_profesional: form.biografia_profesional.trim() || undefined,
-        anios_experiencia: form.anios_experiencia ? Number(form.anios_experiencia) : null,
-        red_social_link: form.red_social_link.trim() || undefined,
-        horarios,
-      });
-
-      onMensaje('Entrenador registrado correctamente.');
-      setMostrarForm(false);
-      setForm(vacio);
-      setHorariosNuevos([]);
-      await cargar();
-    } catch (err) {
-      onFallo(errorDeAxios(err));
-    } finally {
-      setGuardando(false);
-    }
-  };
-
-  const baja = async (ent: Entrenador) => {
-    if (!window.confirm(`¿Dar de baja al entrenador "${ent.username}"?`)) return;
-    try {
-      await svc.darDeBajaEntrenador(ent.id_entrenador);
-      onMensaje('Entrenador dado de baja.');
-      await cargar();
-    } catch (err) {
-      onFallo(errorDeAxios(err));
-    }
-  };
-
-  return (
-    <div>
-      <div className="flex flex-wrap items-end gap-3 mb-5">
-        <div>
-          <label className="block text-sm mb-1">Estado</label>
-          <select
-            value={estadoFiltro}
-            onChange={(e) => setEstadoFiltro(e.target.value)}
-            className={`${inputCls} w-48`}
-          >
-            <option value="">Todos</option>
-            <option value="Activo">Activos</option>
-            <option value="Inactivo">Inactivos</option>
-          </select>
-        </div>
-
-        <button
-          onClick={() => {
-            setForm(vacio);
-            setHorariosNuevos([]);
-            setMostrarForm(true);
-          }}
-          className={btnPrincipal}
-        >
-          + NUEVO ENTRENADOR
-        </button>
-      </div>
-
-      {mostrarForm && (
-        <div className={`${tarjeta} mb-6`}>
-          <h2 className="text-2xl font-bold mb-4">REGISTRAR ENTRENADOR</h2>
-          <form onSubmit={guardar} className="flex flex-col gap-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block mb-1">Usuario *</label>
-                <input
-                  type="text"
-                  value={form.username}
-                  onChange={(e) => setForm({ ...form, username: e.target.value })}
-                  className={inputCls}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block mb-1">Correo</label>
-                <input
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  className={inputCls}
-                />
-              </div>
-
-              <div>
-                <label className="block mb-1">CI *</label>
-                <input
-                  type="text"
-                  value={form.ci}
-                  onChange={(e) => setForm({ ...form, ci: e.target.value })}
-                  className={inputCls}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block mb-1">Teléfono</label>
-                <input
-                  type="text"
-                  value={form.telefono}
-                  onChange={(e) => setForm({ ...form, telefono: e.target.value })}
-                  className={inputCls}
-                />
-              </div>
-
-              <div>
-                <label className="block mb-1">Contraseña *</label>
-                <input
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => setForm({ ...form, password: e.target.value })}
-                  className={inputCls}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block mb-1">Repetir contraseña *</label>
-                <input
-                  type="password"
-                  value={form.password2}
-                  onChange={(e) => setForm({ ...form, password2: e.target.value })}
-                  className={inputCls}
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block mb-1">Especialidad</label>
-                <input
-                  type="text"
-                  value={form.especialidad}
-                  onChange={(e) => setForm({ ...form, especialidad: e.target.value })}
-                  className={inputCls}
-                  placeholder="Hipertrofia, fuerza, movilidad..."
-                />
-              </div>
-
-              <div>
-                <label className="block mb-1">Años de experiencia</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={form.anios_experiencia}
-                  onChange={(e) => setForm({ ...form, anios_experiencia: e.target.value })}
-                  className={inputCls}
-                />
-              </div>
-
-              <div>
-                <label className="block mb-1">Certificado</label>
-                <input
-                  type="text"
-                  value={form.certificado}
-                  onChange={(e) => setForm({ ...form, certificado: e.target.value })}
-                  className={inputCls}
-                />
-              </div>
-
-              <div className="md:col-span-3">
-                <label className="block mb-1">Red social / portafolio</label>
-                <input
-                  type="url"
-                  value={form.red_social_link}
-                  onChange={(e) => setForm({ ...form, red_social_link: e.target.value })}
-                  className={inputCls}
-                  placeholder="https://..."
-                />
-              </div>
-
-              <div className="md:col-span-3">
-                <label className="block mb-1">Biografía profesional</label>
-                <textarea
-                  value={form.biografia_profesional}
-                  onChange={(e) => setForm({ ...form, biografia_profesional: e.target.value })}
-                  className={inputCls}
-                  rows={2}
-                />
-              </div>
-            </div>
-
-            {/* Horarios semanales */}
-            <div>
-              <div className="flex justify-between items-center mb-2">
-                <h3 className="font-bold text-lg">HORARIOS</h3>
-                <button type="button" onClick={agregarHorario} className={btnSecundario}>
-                  + AGREGAR HORARIO
-                </button>
-              </div>
-
-              {horariosNuevos.length === 0 ? (
-                <p className="text-gray-400 text-sm">Sin horarios asignados.</p>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  {horariosNuevos.map((h, i) => (
-                    <div key={i} className="flex flex-wrap items-end gap-3 bg-gray-800 p-3 rounded">
-                      <div className="w-48">
-                        <label className="block text-xs mb-1">Día</label>
-                        <select
-                          value={h.dia_semana}
-                          onChange={(e) => {
-                            const copia = [...horariosNuevos];
-                            copia[i] = { ...h, dia_semana: e.target.value };
-                            setHorariosNuevos(copia);
-                          }}
-                          className={inputCls}
-                        >
-                          {DIAS.map((d) => (
-                            <option key={d} value={d}>
-                              {d}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="flex-1 min-w-[200px]">
-                        <label className="block text-xs mb-1">Turno</label>
-                        <select
-                          value={h.id_turno}
-                          onChange={(e) => {
-                            const copia = [...horariosNuevos];
-                            copia[i] = { ...h, id_turno: e.target.value };
-                            setHorariosNuevos(copia);
-                          }}
-                          className={inputCls}
-                        >
-                          <option value="">Seleccione...</option>
-                          {turnos.map((t) => (
-                            <option key={t.id_turno} value={t.id_turno}>
-                              {t.nombre_turno} ({t.hora_inicio}–{t.hora_fin})
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setHorariosNuevos((prev) => prev.filter((_, j) => j !== i))
-                        }
-                        className={btnPeligro}
-                      >
-                        QUITAR
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {turnos.length === 0 && (
-                <p className="text-yellow-400 text-sm mt-2">
-                  No hay turnos cargados en el sistema: pida al administrador que los cree.
-                </p>
-              )}
-            </div>
-
-            <div className="flex gap-3">
-              <button type="submit" disabled={guardando} className={btnPrincipal}>
-                {guardando ? 'REGISTRANDO...' : 'REGISTRAR ENTRENADOR'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setMostrarForm(false)}
-                className={btnPeligro}
-              >
-                CANCELAR
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {cargando ? (
-        <p>Cargando entrenadores...</p>
-      ) : entrenadores.length === 0 ? (
-        <p className="text-gray-400">No hay entrenadores registrados.</p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {entrenadores.map((ent) => (
-            <div key={ent.id_entrenador} className={tarjeta}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <h3 className="text-xl font-bold">{ent.username}</h3>
-                  <p className="text-yellow-400 text-sm">
-                    {ent.especialidad || 'Sin especialidad declarada'}
-                  </p>
-                </div>
-                <span
-                  className={`px-2 py-1 rounded text-sm ${
-                    ent.estado === 'Activo'
-                      ? 'bg-green-900 text-green-300'
-                      : 'bg-red-900 text-red-300'
-                  }`}
-                >
-                  {ent.estado}
-                </span>
-              </div>
-
-              <div className="mt-3 text-sm text-gray-300 flex flex-col gap-1">
-                <span>CI: {ent.ci}</span>
-                {ent.telefono && <span>Tel: {ent.telefono}</span>}
-                {ent.email && <span>{ent.email}</span>}
-                {ent.anios_experiencia !== null && (
-                  <span>{ent.anios_experiencia} año(s) de experiencia</span>
-                )}
-              </div>
-
-              {ent.biografia_profesional && (
-                <p className="mt-2 text-sm text-gray-400">{ent.biografia_profesional}</p>
-              )}
-
-              {ent.horarios.length > 0 && (
-                <div className="mt-3">
-                  <p className="text-sm text-gray-400 mb-1">Horarios:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {ent.horarios.map((h) => (
-                      <span
-                        key={h.id_horario_entrenador}
-                        className="bg-gray-800 px-2 py-1 rounded text-sm"
-                      >
-                        {h.dia_semana_display || h.dia_semana}
-                        {h.turno_nombre ? ` · ${h.turno_nombre}` : ''}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {ent.estado === 'Activo' && (
-                <button onClick={() => baja(ent)} className={`${btnPeligro} mt-3`}>
-                  DAR DE BAJA
-                </button>
-              )}
-            </div>
-          ))}
         </div>
       )}
     </div>

@@ -318,6 +318,13 @@ export const darDeBajaEntrenador = async (id: number): Promise<void> => {
   await api.delete(`entrenadores/${id}/`, auth());
 };
 
+// Reactiva un entrenador dado de baja: operación inversa de la baja lógica.
+// El backend expone la acción como POST /entrenadores/<id>/activar/.
+export const activarEntrenador = async (id: number): Promise<Entrenador> => {
+  const { data } = await api.post<Entrenador>(`entrenadores/${id}/activar/`, {}, auth());
+  return data;
+};
+
 export const listarTurnos = async (): Promise<Turno[]> => {
   const { data } = await api.get<Turno[] | { results: Turno[] }>('turnos/', auth());
   return comoLista<Turno>(data);

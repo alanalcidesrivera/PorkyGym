@@ -945,6 +945,31 @@ class EntrenadorViewSet(viewsets.ModelViewSet):
             usuario=self.request.user,
         )
 
+    @action(detail=True, methods=['post'])
+    def activar(self, request, pk=None):
+        """CU20: reactivar un entrenador dado de baja (Inactivo → Activo).
+
+        Es la operación inversa de la baja lógica del ``perform_destroy``:
+        no recrea nada, solo vuelve a marcar el perfil como ``Activo`` para
+        que vuelva a aparecer en el listado y pueda ser elegido al asignar
+        rutinas. Ruta generada por el router: ``POST /api/entrenadores/<pk>/activar/``.
+        """
+        entrenador = self.get_object()
+        if entrenador.estado == 'Activo':
+            return Response(
+                {'mensaje': f"El entrenador '{entrenador.id_entrenador.username}' ya está activo."}
+            )
+
+        entrenador.estado = 'Activo'
+        entrenador.save(update_fields=['estado'])
+        registrar_bitacora(
+            request, 'UPDATE', 'entrenador',
+            f"'{request.user.username}' reactivó al entrenador "
+            f"'{entrenador.id_entrenador.username}'.",
+            usuario=request.user,
+        )
+        return Response(EntrenadorSerializer(entrenador).data)
+
 
 class RegistrarEntrenadorView(APIView):
     """Alta de entrenador: crea la cuenta (rol Entrenador) + perfil + horarios."""

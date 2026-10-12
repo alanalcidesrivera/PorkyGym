@@ -122,6 +122,21 @@ REST_FRAMEWORK = {
     )
 }
 
+# Vida del JWT.
+# SimpleJWT por defecto deja el access token vivo SOLO 5 minutos; como el
+# frontend no lo renovaba, cada pantalla que recargaba datos (por ejemplo el
+# alta de entrenador) empezaba a fallar con 401 y mostraba mensajes como
+# «No se pudieron cargar los entrenadores». Ahora el access token dura lo que
+# razonablemente dura una jornada y el interceptor de axios de
+# Fronted/src/services/api.ts lo renueva automáticamente con el refresh token.
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': False,
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
+
 AUTHENTICATION_BACKENDS = [
     'axes.backends.AxesStandaloneBackend',
     'django.contrib.auth.backends.ModelBackend',
