@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
+import EntrenamientoScreen from './components/EntrenamientoScreen';
 
 // URL base del backend Django
 const API_URL = 'http://127.0.0.1:8000/api';
@@ -134,6 +135,7 @@ interface NavbarProps {
   onRegistrarSocio: () => void;
   onPlanes: () => void;
   onRegistrarContrato: () => void;
+  onEntrenamiento: () => void;
   onInicio: () => void;
 }
 
@@ -144,6 +146,7 @@ export const Navbar = ({
   onRegistrarSocio,
   onPlanes,
   onRegistrarContrato,
+  onEntrenamiento,
   onInicio,
 }: NavbarProps) => {
   const [menuUsuariosAbierto, setMenuUsuariosAbierto] = useState(false);
@@ -289,6 +292,17 @@ export const Navbar = ({
           )}
         </div>
       )}
+
+      {/* PAQUETE 4: ENTRENAMIENTO (CU17–CU20)
+          Ejercicios, rutinas, asignación a socios y perfil de entrenadores.
+          El Socio también entra, pero en modo solo lectura (ve sus rutinas
+          asignadas y el catálogo); el alta la controla el backend. */}
+      <button
+        onClick={onEntrenamiento}
+        className={pantallaActual === 'entrenamiento' ? btnActivo : btnInactivo}
+      >
+        ENTRENAMIENTO
+      </button>
 
       <button
         onClick={() => {
@@ -3214,7 +3228,9 @@ const PantallaRegistrarContratoMembresia = ({ onVolver }: { onVolver: () => void
 export default function App() {
   const token = localStorage.getItem('access_token');
 
-  const [pantalla, setPantalla] = useState<'inicio' | 'usuarios' | 'bitacora' | 'registrar-socio' | 'planes' | 'contrato'>('inicio');
+  const [pantalla, setPantalla] = useState<
+    'inicio' | 'usuarios' | 'bitacora' | 'registrar-socio' | 'planes' | 'contrato' | 'entrenamiento'
+  >('inicio');
   // Ruta del enlace de recuperación: /reset-password/{uid}/{token}/
   const matchReset = window.location.pathname.match(/^\/reset-password\/([^/]+)\/([^/]+)\/?$/);
 
@@ -3236,6 +3252,7 @@ export default function App() {
         onRegistrarSocio={() => setPantalla('registrar-socio')}
         onPlanes={() => setPantalla('planes')}
         onRegistrarContrato={() => setPantalla('contrato')}
+        onEntrenamiento={() => setPantalla('entrenamiento')}
       />
       <main className="p-4">
         {!token ? (
@@ -3258,6 +3275,10 @@ export default function App() {
           />
         ) : pantalla === 'contrato' ? (
           <PantallaRegistrarContratoMembresia
+            onVolver={() => setPantalla('inicio')}
+          />
+        ) : pantalla === 'entrenamiento' ? (
+          <EntrenamientoScreen
             onVolver={() => setPantalla('inicio')}
           />
         ) : (

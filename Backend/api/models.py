@@ -2,6 +2,41 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
+# ==============================================================================
+# CONSTANTES COMPARTIDAS (catálogos de UI y validaciones)
+# ==============================================================================
+
+# CU17: catálogo de grupos musculares. Se expone al frontend mediante
+# ``GET /api/ejercicios/grupos/`` para poblar los selects sin escribir
+# los valores a mano (evita "Pecho", "pecho", "PECHO" en la misma BD).
+GRUPOS_MUSCULARES = [
+    ('Pecho', 'Pecho'),
+    ('Espalda', 'Espalda'),
+    ('Hombros', 'Hombros'),
+    ('Brazos', 'Brazos'),
+    ('Piernas', 'Piernas'),
+    ('Gluteos', 'Glúteos'),
+    ('Abdomen', 'Abdomen'),
+    ('Cuerpo completo', 'Cuerpo completo'),
+]
+
+DIAS_SEMANA = [
+    ('Lunes', 'Lunes'),
+    ('Martes', 'Martes'),
+    ('Miercoles', 'Miércoles'),
+    ('Jueves', 'Jueves'),
+    ('Viernes', 'Viernes'),
+    ('Sabado', 'Sábado'),
+    ('Domingo', 'Domingo'),
+]
+
+NIVELES_RUTINA = [
+    ('Principiante', 'Principiante'),
+    ('Intermedio', 'Intermedio'),
+    ('Avanzado', 'Avanzado'),
+]
+
+
 class Usuario(AbstractUser):
     ci = models.CharField(max_length=20, unique=True, null=True, blank=True)
     telefono = models.CharField(max_length=20, null=True, blank=True)
@@ -72,9 +107,11 @@ class PlanMembresia(models.Model):
 class Rutina(models.Model):
     id_rutina = models.AutoField(primary_key=True)
     nombre_rutina = models.CharField(max_length=100)
-    nivel = models.CharField(max_length=50)
+    nivel = models.CharField(max_length=50, choices=NIVELES_RUTINA, default='Principiante')
+    descripcion = models.TextField(null=True, blank=True)
     calorias_estimadas = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
     duracion_estimada_mins = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(1)])
+    estado = models.CharField(max_length=20, default='Activo')
 
     class Meta:
         db_table = 'rutina'
@@ -84,9 +121,13 @@ class Ejercicio(models.Model):
     id_ejercicio = models.AutoField(primary_key=True)
     nombre_ejercicio = models.CharField(max_length=100)
     equipo_requerido = models.CharField(max_length=100, null=True, blank=True)
-    grupo_muscular = models.CharField(max_length=100, null=True, blank=True)
+    grupo_muscular = models.CharField(
+        max_length=100, choices=GRUPOS_MUSCULARES, null=True, blank=True
+    )
     zona_ubicacion = models.CharField(max_length=100, null=True, blank=True)
     url_video_tecnica = models.CharField(max_length=255, null=True, blank=True)
+    descripcion_tecnica = models.TextField(null=True, blank=True)
+    estado = models.CharField(max_length=20, default='Activo')
 
     class Meta:
         db_table = 'ejercicio'
@@ -127,9 +168,30 @@ class Entrenador(models.Model):
     biografia_profesional = models.TextField(null=True, blank=True)
     anios_experiencia = models.IntegerField(null=True, blank=True, validators=[MinValueValidator(0)])
     red_social_link = models.CharField(max_length=255, null=True, blank=True)
+    estado = models.CharField(max_length=20, default='Activo')
 
     class Meta:
         db_table = 'entrenador'
+
+
+class HorarioEntrenador(models.Model):
+    """CU20: disponibilidad semanal del entrenador.
+
+    Reutiliza el catálogo ``Turno`` (franja horaria) más el día de la semana,
+    en lugar de duplicar horas en cada fila. La restricción
+    ``unique_together`` impide que el mismo entrenador quede registrado dos
+    veces en el mismo turno/día (dato incoherente para la agenda).
+    """
+    id_horario_entrenador = models.AutoField(primary_key=True)
+    id_entrenador = models.ForeignKey(
+        Entrenador, on_delete=models.CASCADE, db_column='id_entrenador', related_name='horarios'
+    )
+    id_turno = models.ForeignKey(Turno, on_delete=models.RESTRICT, db_column='id_turno')
+    dia_semana = models.CharField(max_length=15, choices=DIAS_SEMANA)
+
+    class Meta:
+        db_table = 'horario_entrenador'
+        unique_together = (('id_entrenador', 'id_turno', 'dia_semana'),)
 
 
 class Socio(models.Model):
@@ -291,14 +353,23 @@ class AsignacionRutina(models.Model):
     id_socio = models.ForeignKey(Socio, on_delete=models.CASCADE, db_column='id_socio')
     id_rutina = models.ForeignKey(Rutina, on_delete=models.RESTRICT, db_column='id_rutina')
     fecha_asignacion = models.DateField(auto_now_add=True)
+    fecha_inicio = models.DateField(null=True, blank=True)
+    fecha_fin = models.DateField(null=True, blank=True)
+    observaciones = models.TextField(null=True, blank=True)
+    estado = models.CharField(max_length=20, default='Activa')
 
     class Meta:
         db_table = 'asignacion_rutina'
 
 
 class DetalleRutina(models.Model):
-    id_rutina = models.ForeignKey(Rutina, on_delete=models.CASCADE, db_column='id_rutina')
-    id_ejercicio = models.ForeignKey(Ejercicio, on_delete=models.CASCADE, db_column='id_ejercicio')
+    id_rutina = models.ForeignKey(
+        Rutina, on_delete=models.CASCADE, db_column='id_rutina', related_name='detalles'
+    )
+    id_ejercicio = models.ForeignKey(
+        Ejercicio, on_delete=models.CASCADE, db_column='id_ejercicio', related_name='detalles_rutina'
+    )
+    orden = models.PositiveIntegerField(default=1, validators=[MinValueValidator(1)])
     series = models.IntegerField(validators=[MinValueValidator(1)])
     repeticiones = models.IntegerField(validators=[MinValueValidator(1)])
     descanso_minutos = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True, validators=[MinValueValidator(0)])
@@ -306,6 +377,7 @@ class DetalleRutina(models.Model):
     class Meta:
         db_table = 'detalle_rutina'
         unique_together = (('id_rutina', 'id_ejercicio'),)
+        ordering = ['orden', 'id_ejercicio']
 
 
 class Venta(models.Model):

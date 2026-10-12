@@ -19,6 +19,9 @@ env/
 # Logs
 *.log
 
+# Bases de datos locales
+*.sqlite3
+
 
 # =========================
 # Node / React / Vite
