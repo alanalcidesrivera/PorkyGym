@@ -9,7 +9,10 @@
 // «No se pudieron cargar los ejercicios», etc.).
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 
-const URL_BASE = 'http://127.0.0.1:8000/api/'; // La URL de tu backend en Django
+const API_URL =
+  import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
+
+const URL_BASE = `${API_URL.replace(/\/+$/, '')}/`; // La URL de tu backend en Django
 
 const api = axios.create({
   baseURL: URL_BASE,
