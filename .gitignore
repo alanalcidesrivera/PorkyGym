@@ -5,7 +5,7 @@
 __pycache__/
 *.py[cod]
 *.pyo
-
+Backend/staticfiles/
 # Entornos virtuales
 venv/
 .venv/
