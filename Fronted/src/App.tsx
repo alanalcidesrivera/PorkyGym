@@ -2,6 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 import EntrenamientoScreen from './components/EntrenamientoScreen';
 import EntrenadoresScreen from './components/EntrenadoresScreen';
+import {
+  iniciarActividad,
+  iniciarSesionInactividad,
+  limpiarSesion,
+} from './services/sesion';
 
 // URL base del backend Django
 const API_URL = (
@@ -332,9 +337,8 @@ export const Navbar = ({
 
       <button
         onClick={() => {
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
-          localStorage.removeItem('usuario');
+          // Cierre manual: también limpia la marca de inactividad.
+          limpiarSesion();
 
           window.location.reload();
         }}
@@ -383,6 +387,10 @@ const LoginForm: React.FC<LoginFormProps> = ({ mensajeInicio, onIrARecuperar }) 
           JSON.stringify(data.usuario)
         );
 
+        // Nuevo inicio de sesión: marca de actividad desde cero, para no
+        // heredar el tiempo de una sesión anterior.
+        iniciarActividad();
+
         window.location.reload();
       } else {
         setError(mensajeDeError(data));
@@ -395,7 +403,7 @@ const LoginForm: React.FC<LoginFormProps> = ({ mensajeInicio, onIrARecuperar }) 
   };
 
   return (
-    <Tarjeta titulo="INICIAR SESIÓN">
+    <Tarjeta titulo="Bienvenido a PorkyGym">
       {mensajeInicio && <Alerta tipo="ok">{mensajeInicio}</Alerta>}
       {error && <Alerta tipo="error">{error}</Alerta>}
 
@@ -795,6 +803,7 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
   const [categoriaSeleccionada, setCategoriaSeleccionada] = useState<
     'administradores' |
     'recepcionistas' |
+    'entrenadores' |
     'socios' |
     'sin_rol' |
     null
@@ -870,6 +879,11 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
           (usuario) => usuario.es_recepcionista
         );
 
+      case 'entrenadores':
+        return usuarios.filter(
+          (usuario) => usuario.es_entrenador
+        );
+
       case 'socios':
         return usuarios.filter(
           (usuario) => usuario.es_socio
@@ -895,6 +909,9 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
 
       case 'recepcionistas':
         return 'RECEPCIONISTAS';
+
+      case 'entrenadores':
+        return 'ENTRENADORES';
 
       case 'socios':
         return 'SOCIOS';
@@ -934,7 +951,13 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
     const tieneRol =
       formEdicion.es_administrador ||
       formEdicion.es_recepcionista ||
-      formEdicion.es_socio;
+      formEdicion.es_socio ||
+      // El rol Entrenador no se administra desde este formulario (CU20), pero
+      // sí cuenta como rol del usuario: sin incluirlo, una cuenta cuyo único
+      // rol sea Entrenador nunca podría guardarse ni cambiar su contraseña
+      // desde «Gestionar usuarios». Como es_entrenador no se envía en el
+      // PATCH, la API lo conserva sin modificar.
+      Boolean(usuarioEditando.es_entrenador);
 
     if (!tieneRol) {
       setErrorEdicion('El usuario debe tener al menos un rol.');
@@ -959,16 +982,17 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
     try {
       const token = localStorage.getItem('access_token');
 
-      // El rol Entrenador no se gestiona desde este formulario (existe el
-      // flujo independiente «Entrenadores», CU20): por eso no se envía y la
-      // API lo conserva sin modificar en la actualización parcial.
+      // Los roles Socio y Entrenador no se gestionan desde este formulario
+      // (el socio se registra en su propio módulo y el entrenador en
+      // «Entrenadores», CU20): por eso no se envían. PATCH es una
+      // actualización parcial, de modo que omitirlos conserva el valor actual
+      // en vez de restablecerlo a false.
       const datos: any = {
         username: formEdicion.username,
         email: formEdicion.email,
 
         es_administrador: formEdicion.es_administrador,
         es_recepcionista: formEdicion.es_recepcionista,
-        es_socio: formEdicion.es_socio,
       };
 
       // Solo enviamos contraseña si realmente la cambió
@@ -1529,20 +1553,6 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
                   Recepcionista
                 </label>
 
-                <label className="flex gap-2">
-                  <input
-                    type="checkbox"
-                    checked={formEdicion.es_socio}
-                    onChange={(e) =>
-                      setFormEdicion({
-                        ...formEdicion,
-                        es_socio: e.target.checked,
-                      })
-                    }
-                  />
-                  Socio
-                </label>
-
               </div>
             </div>
 
@@ -1606,6 +1616,24 @@ const GestionUsuarios = ({ onVolver }: { onVolver: () => void }) => {
               {
                 usuarios.filter(
                   (usuario) => usuario.es_recepcionista
+                ).length
+              } usuario(s)
+            </p>
+          </button>
+
+
+          <button
+            onClick={() => setCategoriaSeleccionada('entrenadores')}
+            className="bg-gray-900 border border-gray-700 p-6 rounded text-left hover:bg-gray-800"
+          >
+            <h2 className="text-xl font-bold">
+              ENTRENADORES
+            </h2>
+
+            <p className="mt-2 text-gray-300">
+              {
+                usuarios.filter(
+                  (usuario) => usuario.es_entrenador
                 ).length
               } usuario(s)
             </p>
@@ -3205,6 +3233,11 @@ export default function App() {
     | 'contrato'
     | 'entrenamiento'
   >('inicio');
+  // Cierre automático de sesión tras 15 min de inactividad real. El módulo
+  // decide internamente si hay sesión autenticada y limpia sus propios
+  // listeners/intervalos al desmontar.
+  useEffect(() => iniciarSesionInactividad(), []);
+
   // Ruta del enlace de recuperación: /reset-password/{uid}/{token}/
   const matchReset = window.location.pathname.match(/^\/reset-password\/([^/]+)\/([^/]+)\/?$/);
 

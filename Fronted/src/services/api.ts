@@ -8,6 +8,7 @@
 // después de vencido el token («No se pudieron cargar los entrenadores»,
 // «No se pudieron cargar los ejercicios», etc.).
 import axios, { AxiosError, AxiosRequestConfig } from 'axios';
+import { limpiarSesion } from './sesion';
 
 const API_URL =
   import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api';
@@ -30,12 +31,6 @@ const esPeticionDeAuth = (url = '') =>
 // todas esperan el mismo resultado.
 let renovacionEnCurso: Promise<string | null> | null = null;
 
-const cerrarSesion = () => {
-  localStorage.removeItem('access_token');
-  localStorage.removeItem('refresh_token');
-  localStorage.removeItem('usuario');
-};
-
 const renovarToken = (): Promise<string | null> => {
   if (!renovacionEnCurso) {
     renovacionEnCurso = axios
@@ -48,7 +43,7 @@ const renovarToken = (): Promise<string | null> => {
       })
       .catch(() => {
         // El refresh token también venció: no hay sesión posible.
-        cerrarSesion();
+        limpiarSesion();
         return null;
       })
       .finally(() => {
