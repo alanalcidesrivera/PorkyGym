@@ -5,7 +5,7 @@
 __pycache__/
 *.py[cod]
 *.pyo
-
+Backend/staticfiles/
 # Entornos virtuales
 venv/
 .venv/
@@ -18,6 +18,9 @@ env/
 
 # Logs
 *.log
+
+# Bases de datos locales
+*.sqlite3
 
 
 # =========================

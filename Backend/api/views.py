@@ -4,7 +4,7 @@ import csv
 from django.conf import settings
 from axes.models import AccessAttempt
 from decouple import config
-from rest_framework import status, permissions, viewsets, mixins  # <--- Se agregó viewsets aquí
+from rest_framework import status, permissions, viewsets, mixins, serializers  # <--- Se agregó viewsets aquí
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.decorators import action
@@ -15,15 +15,28 @@ from django.utils.encoding import force_bytes, force_str
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
+from django.db import transaction
+from django.db.models import Q, Count
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .emails import enviar_correo_brevo
 
 from rest_framework.permissions import AllowAny
-from .models import Usuario, Socio, PlanMembresia, Venta, Producto, Ejercicio, Rutina, Bitacora
+from .models import (
+    Usuario, Socio, PlanMembresia, MetodoPago, Venta, Producto,
+    Ejercicio, Rutina, Bitacora,
+    DetalleRutina, AsignacionRutina, Entrenador, HorarioEntrenador, Turno,
+    GRUPOS_MUSCULARES,
+)
+from .membresias import asegurar_metodos_pago
 from .serializers import (
     RegistroUsuarioSerializer, UsuarioSerializer, SocioSerializer,
-    PlanMembresiaSerializer, VentaSerializer, ProductoSerializer,
-    EjercicioSerializer, RutinaSerializer, LoginSerializer,
+    PlanMembresiaSerializer, MetodoPagoSerializer, ContratoMembresiaSerializer,
+    RegistrarContratoMembresiaSerializer, VentaSerializer, ProductoSerializer,
+    EjercicioSerializer, EjercicioListSerializer, RutinaSerializer,
+    RutinaConDetallesSerializer, AsignacionRutinaSerializer,
+    EntrenadorSerializer, RegistrarEntrenadorSerializer,
+    HorarioEntrenadorSerializer, TurnoSerializer,
+    LoginSerializer,
     BitacoraSerializer, RegistrarSocioSerializer,
 )
 
@@ -219,6 +232,55 @@ class EsRecepcionistaOAdministrador(permissions.BasePermission):
         )
 
 
+class EsAdministradorORecepcionista(permissions.BasePermission):
+    """Lectura de catálogos (planes): Administrador y Recepcionista.
+
+    CU04 (Registrar Expediente de Socio) necesita listar los planes activos
+    para asignar la membresía inicial, por eso la consulta se mantiene
+    disponible para ambos roles.
+    """
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and (request.user.es_administrador or request.user.es_recepcionista)
+        )
+
+
+class EsEntrenadorOAdministrador(permissions.BasePermission):
+    """CU17, CU18 y CU20: roles que diseñan el contenido de entrenamiento.
+
+    El Entrenador administra ejercicios, rutinas y su propio perfil; el
+    Administrador tiene acceso total sobre el mismo módulo.
+    """
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and (request.user.es_entrenador or request.user.es_administrador)
+        )
+
+
+class EsAdministradorOEntrenador(permissions.BasePermission):
+    """CU19: asignar rutinas a socios.
+
+    Lo usan el Entrenador (asigna las rutinas que diseñó) y el Administrador.
+    """
+    def has_permission(self, request, view):
+        return (
+            request.user
+            and request.user.is_authenticated
+            and (request.user.es_entrenador or request.user.es_administrador)
+        )
+
+
+def entrenador_del_usuario(usuario):
+    """Devuelve el perfil Entrenador del usuario o None si no tiene uno."""
+    if usuario is None or not usuario.is_authenticated:
+        return None
+    return Entrenador.objects.filter(id_entrenador=usuario).first()
+
+
 def _roles_texto(usuario):
     roles = []
     if usuario.es_administrador:
@@ -313,10 +375,153 @@ class RegistrarSocioView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
+# ----------------------------------------------------------------------------
+# CU05: ADMINISTRAR PLANES DE MEMBRESÍA
+# El Administrador crea, edita, activa y desactiva planes. La lectura queda
+# disponible para Recepcionista y Administrador (CU04 la usa al registrar
+# socios). Los planes NO se eliminan físicamente: se desactivan para conservar
+# el historial y las relaciones de los contratos que los referencian.
+# ----------------------------------------------------------------------------
 class PlanMembresiaViewSet(viewsets.ModelViewSet):
     queryset = PlanMembresia.objects.all()
     serializer_class = PlanMembresiaSerializer
-    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        # Lectura: CU04 (Registrar Socio) y CU05 (listar) → Admin/Recepcionista.
+        if self.action in ('list', 'retrieve'):
+            return [EsAdministradorORecepcionista()]
+        # Escritura y acciones administrativas: solo Administrador.
+        return [EsAdministrador()]
+
+    def perform_create(self, serializer):
+        plan = serializer.save()
+        registrar_bitacora(
+            self.request, 'CREATE', 'plan_membresia',
+            f"El administrador '{self.request.user.username}' creó el plan "
+            f"'{plan.nombre_plan}' ({plan.duracion_dias} días, "
+            f"{plan.costo_base_origen} {plan.moneda_origen}).",
+            usuario=self.request.user,
+        )
+
+    def perform_update(self, serializer):
+        anterior = self.get_object()
+        plan = serializer.save()
+        cambios = []
+        if anterior.nombre_plan != plan.nombre_plan:
+            cambios.append(f"nombre: {anterior.nombre_plan} → {plan.nombre_plan}")
+        if float(anterior.costo_base_origen) != float(plan.costo_base_origen):
+            cambios.append(f"costo: {anterior.costo_base_origen} → {plan.costo_base_origen}")
+        if anterior.duracion_dias != plan.duracion_dias:
+            cambios.append(f"duracion: {anterior.duracion_dias} → {plan.duracion_dias} días")
+        if anterior.estado != plan.estado:
+            cambios.append(f"estado: {anterior.estado} → {plan.estado}")
+        registrar_bitacora(
+            self.request, 'UPDATE', 'plan_membresia',
+            f"El administrador '{self.request.user.username}' modificó el plan "
+            f"'{plan.nombre_plan}' ({'; '.join(cambios) if cambios else 'sin cambios registrados'}).",
+            usuario=self.request.user,
+        )
+
+    def destroy(self, request, *args, **kwargs):
+        # CU05: nunca se elimina físicamente; se desactiva (conserva contratos).
+        plan = self.get_object()
+        registrar_bitacora(
+            request, 'DELETE', 'plan_membresia',
+            f"Intento de eliminación del plan '{plan.nombre_plan}' bloqueado: "
+            f"debe usarse la desactivación para cambios de estado.",
+            usuario=request.user,
+        )
+        return Response(
+            {'error': 'No se permite eliminar físicamente un plan de membresía. '
+                      'Use la acción de desactivación para cambios de estado.'},
+            status=status.HTTP_405_METHOD_NOT_ALLOWED,
+        )
+
+    @action(detail=True, methods=['post'])
+    def activar(self, request, pk=None):
+        plan = self.get_object()
+        if plan.estado == 'Activo':
+            return Response({'mensaje': f"El plan '{plan.nombre_plan}' ya está activo."})
+        plan.estado = 'Activo'
+        plan.save(update_fields=['estado'])
+        registrar_bitacora(
+            request, 'UPDATE', 'plan_membresia',
+            f"El administrador '{request.user.username}' activó el plan '{plan.nombre_plan}'.",
+            usuario=request.user,
+        )
+        return Response(PlanMembresiaSerializer(plan).data)
+
+    @action(detail=True, methods=['post'])
+    def desactivar(self, request, pk=None):
+        plan = self.get_object()
+        if plan.estado == 'Inactivo':
+            return Response({'mensaje': f"El plan '{plan.nombre_plan}' ya está inactivo."})
+        plan.estado = 'Inactivo'
+        plan.save(update_fields=['estado'])
+        registrar_bitacora(
+            request, 'UPDATE', 'plan_membresia',
+            f"El administrador '{request.user.username}' desactivó el plan '{plan.nombre_plan}'.",
+            usuario=request.user,
+        )
+        return Response(PlanMembresiaSerializer(plan).data)
+
+
+# ----------------------------------------------------------------------------
+# CU06: MÉTODOS DE PAGO DISPONIBLES (catálogo)
+# Lectura exclusiva para Administrador y Recepcionista (se usa en el registro
+# de contratos de membresía).
+# ----------------------------------------------------------------------------
+class MetodoPagoViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = MetodoPago.objects.all()
+    serializer_class = MetodoPagoSerializer
+    permission_classes = [EsAdministradorORecepcionista]
+
+    def list(self, request, *args, **kwargs):
+        # Garantiza de forma idempotente que existan los métodos base
+        # (Efectivo y Transferencia bancaria) antes de exponer el catálogo,
+        # sin duplicar ni alterar los ya existentes.
+        asegurar_metodos_pago()
+        return super().list(request, *args, **kwargs)
+
+
+# ----------------------------------------------------------------------------
+# CU06: REGISTRAR CONTRATO DE MEMBRESÍA
+# Crea el contrato de un socio existente con un plan activo y un método de
+# pago real. El vencimiento se calcula con la duración en días del plan y el
+# estado de la membresía depende de la cobertura del pago (Activa/Pendiente).
+# La operación es atómica (transaction.atomic) y se registra en la bitácora.
+# No modifica la cuenta del socio ni su estado de la cuenta.
+# ----------------------------------------------------------------------------
+class RegistrarContratoMembresiaView(APIView):
+    permission_classes = [EsRecepcionistaOAdministrador]
+
+    def post(self, request):
+        serializer = RegistrarContratoMembresiaSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        with transaction.atomic():
+            contrato = serializer.save()
+
+        socio = contrato.id_socio.id_socio
+        registrar_bitacora(
+            request,
+            'CREATE',
+            'contrato_membresia',
+            f"'{request.user.username}' registró un contrato de membresía "
+            f"para el socio '{socio.username}' (plan '{contrato.id_plan_mem.nombre_plan}', "
+            f"monto {contrato.monto_pagado_local}, estado '{contrato.estado_membresia}', "
+            f"vigencia {contrato.fecha_inicio} → {contrato.fecha_vencimiento}).",
+            usuario=request.user,
+        )
+
+        return Response(
+            {
+                'mensaje': 'Contrato de membresía registrado exitosamente.',
+                'contrato': ContratoMembresiaSerializer(contrato).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # ----------------------------------------------------------------------------
@@ -373,13 +578,451 @@ class ProductoViewSet(viewsets.ModelViewSet):
     queryset = Producto.objects.all()
     serializer_class = ProductoSerializer
 
+# ----------------------------------------------------------------------------
+# CU17: REGISTRAR EJERCICIO
+# Catálogo de ejercicios del gimnasio, con filtrado por grupo muscular.
+# Lectura: cualquier usuario autenticado (el frontend los usa para armar
+# rutinas). Escritura: Entrenador y Administrador.
+# ----------------------------------------------------------------------------
 class EjercicioViewSet(viewsets.ModelViewSet):
     queryset = Ejercicio.objects.all()
     serializer_class = EjercicioSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
+    def get_serializer_class(self):
+        # La lista necesita el contador de rutinas; el alta/edición, el de escritura.
+        if self.action in ('list', 'retrieve'):
+            return EjercicioListSerializer
+        return EjercicioSerializer
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve', 'grupos'):
+            return [permissions.IsAuthenticated()]
+        return [EsEntrenadorOAdministrador()]
+
+    def get_queryset(self):
+        queryset = (
+            Ejercicio.objects
+            .annotate(en_rutinas=Count('detalles_rutina', distinct=True))
+            .order_by('grupo_muscular', 'nombre_ejercicio')
+        )
+
+        # Filtrado principal de CU17: ver los ejercicios de un grupo muscular.
+        grupo = self.request.query_params.get('grupo_muscular')
+        if grupo:
+            queryset = queryset.filter(grupo_muscular__iexact=grupo)
+
+        # Búsqueda rápida por nombre (usada por el buscador del frontend).
+        busqueda = self.request.query_params.get('buscar')
+        if busqueda:
+            queryset = queryset.filter(
+                Q(nombre_ejercicio__icontains=busqueda)
+                | Q(equipo_requerido__icontains=busqueda)
+            )
+
+        # El catálogo completo solo lo ve el staff; los socios ven los activos.
+        if not (self.request.user.es_entrenador or self.request.user.es_administrador):
+            queryset = queryset.filter(estado='Activo')
+
+        return queryset
+
+    def perform_create(self, serializer):
+        ejercicio = serializer.save()
+        registrar_bitacora(
+            self.request, 'CREATE', 'ejercicio',
+            f"'{self.request.user.username}' registró el ejercicio "
+            f"'{ejercicio.nombre_ejercicio}' (grupo muscular: {ejercicio.grupo_muscular}).",
+            usuario=self.request.user,
+        )
+
+    def perform_update(self, serializer):
+        ejercicio = serializer.save()
+        registrar_bitacora(
+            self.request, 'UPDATE', 'ejercicio',
+            f"'{self.request.user.username}' modificó el ejercicio '{ejercicio.nombre_ejercicio}'.",
+            usuario=self.request.user,
+        )
+
+    def perform_destroy(self, instance):
+        # Baja lógica: los ejercicios ya están referenciados por rutinas
+        # históricas, por lo que no se eliminan físicamente.
+        instance.estado = 'Inactivo'
+        instance.save(update_fields=['estado'])
+        registrar_bitacora(
+            self.request, 'DELETE', 'ejercicio',
+            f"'{self.request.user.username}' dio de baja el ejercicio '{instance.nombre_ejercicio}'.",
+            usuario=self.request.user,
+        )
+
+    @action(detail=False, methods=['get'])
+    def grupos(self, request):
+        """Catálogo de grupos musculares para poblar los selects del frontend.
+
+        Combina el catálogo fijo del modelo con los grupos que ya existen en
+        la base de datos, para no perder registros heredados.
+        """
+        en_bd = (
+            Ejercicio.objects
+            .exclude(grupo_muscular__isnull=True)
+            .exclude(grupo_muscular__exact='')
+            .values_list('grupo_muscular', flat=True)
+            .distinct()
+        )
+        catalogo = [valor for valor, _ in GRUPOS_MUSCULARES]
+        combinados = list(dict.fromkeys(catalogo + sorted(en_bd)))
+        return Response({'grupos': combinados})
+
+
+# ----------------------------------------------------------------------------
+# CU18: DISEÑAR RUTINA DE ENTRENAMIENTO
+# La creación/edición acepta la rutina junto con su lista de ejercicios
+# (series, repeticiones, descanso) en una sola petición atómica.
+# ----------------------------------------------------------------------------
 class RutinaViewSet(viewsets.ModelViewSet):
-    queryset = Rutina.objects.all()
+    queryset = Rutina.objects.all().prefetch_related('detalles__id_ejercicio')
     serializer_class = RutinaSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_serializer_class(self):
+        if self.action in ('create', 'update', 'partial_update'):
+            return RutinaConDetallesSerializer
+        return RutinaSerializer
+
+    def get_permissions(self):
+        # Leer el catálogo y el plan de ejercicios de una rutina es de solo
+        # lectura: también lo usa el Socio para ver la rutina que le asignaron.
+        if self.action in ('list', 'retrieve', 'ejercicios'):
+            return [permissions.IsAuthenticated()]
+        return [EsEntrenadorOAdministrador()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset().order_by('nombre_rutina')
+
+        nivel = self.request.query_params.get('nivel')
+        if nivel:
+            queryset = queryset.filter(nivel__iexact=nivel)
+
+        estado = self.request.query_params.get('estado')
+        if estado:
+            queryset = queryset.filter(estado__iexact=estado)
+        elif self.action == 'ejercicios':
+            # Al abrir el plan de UNA rutina no se filtra por estado: el Socio
+            # debe poder ver la rutina que ya le asignaron aunque después se
+            # haya dado de baja (queda como histórico).
+            pass
+        elif not (self.request.user.es_entrenador or self.request.user.es_administrador):
+            # Los socios solo ven rutinas activas.
+            queryset = queryset.filter(estado='Activo')
+
+        busqueda = self.request.query_params.get('buscar')
+        if busqueda:
+            queryset = queryset.filter(nombre_rutina__icontains=busqueda)
+
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        rutina = serializer.save()
+        registrar_bitacora(
+            request, 'CREATE', 'rutina',
+            f"'{request.user.username}' diseñó la rutina '{rutina.nombre_rutina}' "
+            f"(nivel {rutina.nivel}, {rutina.detalles.count()} ejercicio(s)).",
+            usuario=request.user,
+        )
+        return Response(
+            RutinaSerializer(rutina).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def update(self, request, *args, **kwargs):
+        parcial = kwargs.pop('partial', False)
+        rutina = self.get_object()
+        serializer = self.get_serializer(rutina, data=request.data, partial=parcial)
+        serializer.is_valid(raise_exception=True)
+        rutina = serializer.save()
+        registrar_bitacora(
+            request, 'UPDATE', 'rutina',
+            f"'{request.user.username}' modificó la rutina '{rutina.nombre_rutina}' "
+            f"({rutina.detalles.count()} ejercicio(s)).",
+            usuario=request.user,
+        )
+        return Response(RutinaSerializer(rutina).data)
+
+    def perform_destroy(self, instance):
+        # Baja lógica: la rutina puede estar asignada a socios (CU19) y su
+        # historial debe conservarse.
+        instance.estado = 'Inactivo'
+        instance.save(update_fields=['estado'])
+        registrar_bitacora(
+            self.request, 'DELETE', 'rutina',
+            f"'{self.request.user.username}' dio de baja la rutina '{instance.nombre_rutina}'.",
+            usuario=self.request.user,
+        )
+
+    @action(detail=True, methods=['get'])
+    def ejercicios(self, request, pk=None):
+        """Plan de ejercicios de una rutina (para la vista de detalle)."""
+        rutina = self.get_object()
+        detalles = rutina.detalles.select_related('id_ejercicio')
+        return Response({
+            'rutina': RutinaSerializer(rutina).data,
+            'ejercicios': [
+                {
+                    'orden': d.orden,
+                    'id_ejercicio': d.id_ejercicio_id,
+                    'nombre_ejercicio': d.id_ejercicio.nombre_ejercicio,
+                    'grupo_muscular': d.id_ejercicio.grupo_muscular,
+                    'series': d.series,
+                    'repeticiones': d.repeticiones,
+                    'descanso_minutos': str(d.descanso_minutos) if d.descanso_minutos else None,
+                }
+                for d in detalles
+            ],
+        })
+
+
+# ----------------------------------------------------------------------------
+# CU19: ASIGNAR RUTINA A SOCIO
+# Vincula una rutina existente con un socio que tenga la membresía vigente.
+# ----------------------------------------------------------------------------
+class AsignacionRutinaViewSet(viewsets.ModelViewSet):
+    queryset = (
+        AsignacionRutina.objects
+        .select_related('id_socio__id_socio', 'id_rutina', 'id_entrenador__id_entrenador')
+        .order_by('-fecha_asignacion', '-id_asignacion_rutina')
+    )
+    serializer_class = AsignacionRutinaSerializer
+    permission_classes = [EsAdministradorOEntrenador]
+
+    def get_permissions(self):
+        # El Socio consulta en modo lectura SUS propias rutinas asignadas
+        # (pestaña «Mis rutinas»). Escribir o ver ajenas sigue siendo
+        # exclusivo del Entrenador y del Administrador.
+        if self.action in ('list', 'retrieve'):
+            return [permissions.IsAuthenticated()]
+        return [EsAdministradorOEntrenador()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+
+        # Un Socio jamás ve las asignaciones de otros socios: el filtro se
+        # aplica SIEMPRE por el usuario autenticado, sin posibilidad de
+        # saltarlo con el parámetro ?id_socio=.
+        usuario = self.request.user
+        if not (usuario.es_administrador or usuario.es_entrenador):
+            queryset = queryset.filter(id_socio__id_socio=usuario)
+
+        socio = self.request.query_params.get('id_socio')
+        rutina = self.request.query_params.get('id_rutina')
+        estado = self.request.query_params.get('estado')
+
+        if socio:
+            queryset = queryset.filter(id_socio_id=socio)
+        if rutina:
+            queryset = queryset.filter(id_rutina_id=rutina)
+        if estado:
+            queryset = queryset.filter(estado__iexact=estado)
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Si el actor es Entrenador, se firma con su propio perfil; el
+        # Administrador puede indicar explícitamente quién asigna.
+        datos = serializer.validated_data
+        entrenador = datos.get('id_entrenador') or entrenador_del_usuario(request.user)
+        if entrenador is None:
+            return Response(
+                {'id_entrenador': 'Debe indicar el entrenador que asigna la rutina.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self.perform_create(serializer, entrenador)
+        asignacion = serializer.instance
+        return Response(
+            self.get_serializer(asignacion).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    def perform_create(self, serializer, entrenador=None):
+        if entrenador is None:
+            entrenador = entrenador_del_usuario(self.request.user)
+
+        asignacion = serializer.save(id_entrenador=entrenador)
+        registrar_bitacora(
+            self.request, 'CREATE', 'asignacion_rutina',
+            f"'{self.request.user.username}' asignó la rutina "
+            f"'{asignacion.id_rutina.nombre_rutina}' al socio "
+            f"'{asignacion.id_socio.id_socio.username}'.",
+            usuario=self.request.user,
+        )
+
+    @action(detail=True, methods=['post'])
+    def finalizar(self, request, pk=None):
+        """Marca la asignación como finalizada (el socio terminó la rutina)."""
+        asignacion = self.get_object()
+        if asignacion.estado != 'Activa':
+            return Response(
+                {'mensaje': 'Esta asignación ya no está activa.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        asignacion.estado = 'Finalizada'
+        asignacion.save(update_fields=['estado'])
+        registrar_bitacora(
+            request, 'UPDATE', 'asignacion_rutina',
+            f"'{request.user.username}' finalizó la rutina "
+            f"'{asignacion.id_rutina.nombre_rutina}' del socio "
+            f"'{asignacion.id_socio.id_socio.username}'.",
+            usuario=request.user,
+        )
+        return Response(self.get_serializer(asignacion).data)
+
+
+# ----------------------------------------------------------------------------
+# CU20: GESTIONAR PERFIL DE ENTRENADOR
+# CRUD del perfil (especialidad, certificación, experiencia, horarios) y alta
+# completa de la cuenta con rol Entrenador.
+# ----------------------------------------------------------------------------
+class EntrenadorViewSet(viewsets.ModelViewSet):
+    queryset = (
+        Entrenador.objects
+        .select_related('id_entrenador')
+        .prefetch_related('horarios__id_turno')
+        .order_by('id_entrenador__username')
+    )
+    serializer_class = EntrenadorSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [permissions.IsAuthenticated()]
+        return [EsAdministrador()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        estado = self.request.query_params.get('estado')
+        if estado:
+            queryset = queryset.filter(estado__iexact=estado)
+
+        busqueda = self.request.query_params.get('buscar')
+        if busqueda:
+            queryset = queryset.filter(
+                Q(id_entrenador__username__icontains=busqueda)
+                | Q(especialidad__icontains=busqueda)
+                | Q(id_entrenador__ci__icontains=busqueda)
+            )
+        return queryset
+
+    def perform_create(self, serializer):
+        entrenador = serializer.save()
+        registrar_bitacora(
+            self.request, 'CREATE', 'entrenador',
+            f"'{self.request.user.username}' creó el perfil del entrenador "
+            f"'{entrenador.id_entrenador.username}'.",
+            usuario=self.request.user,
+        )
+
+    def perform_update(self, serializer):
+        entrenador = serializer.save()
+        registrar_bitacora(
+            self.request, 'UPDATE', 'entrenador',
+            f"'{self.request.user.username}' modificó el perfil del entrenador "
+            f"'{entrenador.id_entrenador.username}'.",
+            usuario=self.request.user,
+        )
+
+    def perform_destroy(self, instance):
+        # Baja lógica: el entrenador puede tener rutinas y asignaciones
+        # históricas que referencian su perfil.
+        instance.estado = 'Inactivo'
+        instance.save(update_fields=['estado'])
+        registrar_bitacora(
+            self.request, 'DELETE', 'entrenador',
+            f"'{self.request.user.username}' dio de baja al entrenador "
+            f"'{instance.id_entrenador.username}'.",
+            usuario=self.request.user,
+        )
+
+    @action(detail=True, methods=['post'])
+    def activar(self, request, pk=None):
+        """CU20: reactivar un entrenador dado de baja (Inactivo → Activo).
+
+        Es la operación inversa de la baja lógica del ``perform_destroy``:
+        no recrea nada, solo vuelve a marcar el perfil como ``Activo`` para
+        que vuelva a aparecer en el listado y pueda ser elegido al asignar
+        rutinas. Ruta generada por el router: ``POST /api/entrenadores/<pk>/activar/``.
+        """
+        entrenador = self.get_object()
+        if entrenador.estado == 'Activo':
+            return Response(
+                {'mensaje': f"El entrenador '{entrenador.id_entrenador.username}' ya está activo."}
+            )
+
+        entrenador.estado = 'Activo'
+        entrenador.save(update_fields=['estado'])
+        registrar_bitacora(
+            request, 'UPDATE', 'entrenador',
+            f"'{request.user.username}' reactivó al entrenador "
+            f"'{entrenador.id_entrenador.username}'.",
+            usuario=request.user,
+        )
+        return Response(EntrenadorSerializer(entrenador).data)
+
+
+class RegistrarEntrenadorView(APIView):
+    """Alta de entrenador: crea la cuenta (rol Entrenador) + perfil + horarios."""
+
+    permission_classes = [EsAdministrador]
+
+    def post(self, request):
+        serializer = RegistrarEntrenadorSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        entrenador = serializer.save()
+        registrar_bitacora(
+            request, 'CREATE', 'entrenador',
+            f"'{request.user.username}' registró al entrenador "
+            f"'{entrenador.id_entrenador.username}' "
+            f"(especialidad: {entrenador.especialidad or 'sin definir'}).",
+            usuario=request.user,
+        )
+        return Response(
+            {
+                'mensaje': 'Entrenador registrado exitosamente.',
+                'entrenador': EntrenadorSerializer(entrenador).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class HorarioEntrenadorViewSet(viewsets.ModelViewSet):
+    """Gestión directa de los horarios (día + turno) de cada entrenador."""
+
+    queryset = HorarioEntrenador.objects.select_related('id_turno', 'id_entrenador__id_entrenador')
+    serializer_class = HorarioEntrenadorSerializer
+
+    def get_permissions(self):
+        if self.action in ('list', 'retrieve'):
+            return [permissions.IsAuthenticated()]
+        return [EsEntrenadorOAdministrador()]
+
+    def get_queryset(self):
+        queryset = super().get_queryset().order_by('dia_semana', 'id_turno__hora_inicio')
+        entrenador = self.request.query_params.get('id_entrenador')
+        if entrenador:
+            queryset = queryset.filter(id_entrenador_id=entrenador)
+        return queryset
+
+
+class TurnoViewSet(viewsets.ReadOnlyModelViewSet):
+    """Catálogo de turnos (franjas horarias) usado por CU20."""
+
+    queryset = Turno.objects.all().order_by('hora_inicio')
+    serializer_class = TurnoSerializer
+    permission_classes = [permissions.IsAuthenticated]
 
 class LoginView(TokenObtainPairView):
     """CU02: Autenticar Usuario / Iniciar Sesión.

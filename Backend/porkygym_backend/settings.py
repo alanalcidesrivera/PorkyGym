@@ -8,7 +8,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in config(
+        'ALLOWED_HOSTS',
+        default='127.0.0.1,localhost'
+    ).split(',')
+    if host.strip()
+]
 
 # Application definition
 INSTALLED_APPS = [
@@ -31,6 +38,7 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # Debe ir lo más arriba posible
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -39,14 +47,21 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'axes.middleware.AxesMiddleware',
 ]
-CORS_ALLOW_ALL_ORIGINS = True
 
-# Permitir solicitudes desde el frontend de Vite (puerto 3000) y puerto por defecto 5173
+CORS_ALLOW_ALL_ORIGINS = False
+
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
+    origin.strip()
+    for origin in config(
+        'CORS_ALLOWED_ORIGINS',
+        default=(
+            'http://localhost:3000,'
+            'http://127.0.0.1:3000,'
+            'http://localhost:5173,'
+            'http://127.0.0.1:5173'
+        )
+    ).split(',')
+    if origin.strip()
 ]
 
 ROOT_URLCONF = 'porkygym_backend.urls'
@@ -68,18 +83,27 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'porkygym_backend.wsgi.application'
 
-# Database Configuration (PostgreSQL)
+# Database Configuration (PostgreSQL por defecto, SQLite si USE_SQLITE=True)
 # Configura estos campos según las credenciales de tu PostgreSQL en tu máquina
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': config('DB_NAME'),
-        'USER': config('DB_USER'),
-        'PASSWORD': config('DB_PASSWORD'),
-        'HOST': config('DB_HOST', default='localhost'),
-        'PORT': config('DB_PORT', default='5432'),
+USE_SQLITE = config('USE_SQLITE', default=False, cast=bool)
+if USE_SQLITE:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': config('DB_NAME'),
+            'USER': config('DB_USER'),
+            'PASSWORD': config('DB_PASSWORD'),
+            'HOST': config('DB_HOST', default='localhost'),
+            'PORT': config('DB_PORT', default='5432'),
+        }
+    }
 
 # Password hashing: Django almacena contraseñas como hash PBKDF2-SHA256 con salt
 # (aplicado automáticamente por set_password() / create_user(), nunca en texto plano).
@@ -99,7 +123,7 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 STATIC_URL = 'static/'
-
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -111,6 +135,21 @@ REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
     )
+}
+
+# Vida del JWT.
+# SimpleJWT por defecto deja el access token vivo SOLO 5 minutos; como el
+# frontend no lo renovaba, cada pantalla que recargaba datos (por ejemplo el
+# alta de entrenador) empezaba a fallar con 401 y mostraba mensajes como
+# «No se pudieron cargar los entrenadores». Ahora el access token dura lo que
+# razonablemente dura una jornada y el interceptor de axios de
+# Fronted/src/services/api.ts lo renueva automáticamente con el refresh token.
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': False,
+    'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
 AUTHENTICATION_BACKENDS = [

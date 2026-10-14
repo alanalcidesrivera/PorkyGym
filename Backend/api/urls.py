@@ -5,9 +5,12 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     RegistroView, UsuarioViewSet, SocioViewSet,
-    PlanMembresiaViewSet, VentaViewSet, ProductoViewSet,
+    PlanMembresiaViewSet, MetodoPagoViewSet, VentaViewSet, ProductoViewSet,
     EjercicioViewSet, RutinaViewSet, LoginView,
-    BitacoraViewSet, RegistrarSocioView,
+    BitacoraViewSet, RegistrarSocioView, RegistrarContratoMembresiaView,
+    # CU17–CU20: módulo de entrenamiento
+    AsignacionRutinaViewSet, EntrenadorViewSet, RegistrarEntrenadorView,
+    HorarioEntrenadorViewSet, TurnoViewSet,
 )
 
 # Configuración del Router para los ViewSets
@@ -15,10 +18,15 @@ router = DefaultRouter()
 router.register(r'usuarios', UsuarioViewSet)
 router.register(r'socios', SocioViewSet)
 router.register(r'planes', PlanMembresiaViewSet)
+router.register(r'metodos-pago', MetodoPagoViewSet)  # CU06: catálogo de pago
 router.register(r'ventas', VentaViewSet)
 router.register(r'productos', ProductoViewSet)
-router.register(r'ejercicios', EjercicioViewSet)
-router.register(r'rutinas', RutinaViewSet)
+router.register(r'ejercicios', EjercicioViewSet)          # CU17: registrar ejercicio
+router.register(r'rutinas', RutinaViewSet)               # CU18: diseñar rutina
+router.register(r'asignaciones-rutina', AsignacionRutinaViewSet, basename='asignaciones-rutina')  # CU19
+router.register(r'entrenadores', EntrenadorViewSet, basename='entrenadores')                      # CU20
+router.register(r'horarios-entrenador', HorarioEntrenadorViewSet, basename='horarios-entrenador')  # CU20
+router.register(r'turnos', TurnoViewSet)                 # CU20: catálogo de franjas horarias
 router.register(r'bitacora', BitacoraViewSet, basename='bitacora')  # CU03
 
 urlpatterns = [
@@ -31,6 +39,10 @@ urlpatterns = [
     path('auth/confirmar-reset/<uidb64>/<token>/', ConfirmarResetPasswordView.as_view(), name='confirmar_reset'),
     # CU04: Registrar Expediente de Socio (alta desde Recepción)
     path('socios/registrar/', RegistrarSocioView.as_view(), name='registrar_socio'),
+    # CU06: Registrar Contrato de Membresía (socio existente + plan activo)
+    path('contratos/registrar/', RegistrarContratoMembresiaView.as_view(), name='registrar_contrato'),
+    # CU20: Registrar Entrenador (cuenta + perfil + horarios en una sola petición)
+    path('entrenadores/registrar/', RegistrarEntrenadorView.as_view(), name='registrar_entrenador'),
     # Rutas generadas por el Router
     path('', include(router.urls)),
 ]
